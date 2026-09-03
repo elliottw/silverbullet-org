@@ -1,127 +1,120 @@
-![GitHub Repo stars](https://img.shields.io/github/stars/silverbulletmd/silverbullet)
-![Docker Pulls](https://img.shields.io/docker/pulls/zefhemel/silverbullet)
-![GitHub Downloads (all assets, all releases)](https://img.shields.io/github/downloads/silverbulletmd/silverbullet/total)
-![GitHub contributors](https://img.shields.io/github/contributors/silverbulletmd/silverbullet)
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/silverbulletmd/silverbullet)
+# SilverBullet, with Org mode and Denote
 
-# SilverBullet
-SilverBullet is a Programmable, Private, Browser-based, Open Source, Self Hosted, Personal Knowledge Database — a fancy term for a "notes app on steroids".
+A fork of [SilverBullet](https://github.com/silverbulletmd/silverbullet) that
+makes **`.org` a first-class page type** and teaches it
+[Denote](https://protesilaos.com/emacs/denote), Protesilaos Stavrou's Emacs
+note-taking scheme.
 
-_Yowza!_ That surely is a lot of adjectives to describe a browser-based Markdown editor programmable with Lua.
+The goal is a **web interface to a Denote library**: point it at your
+`denote-directory` and every note becomes a page — its `#+title:` becomes the
+title, its keywords become tags, and its `denote:` links resolve and become
+bidirectional. Nothing is converted or imported; the files on disk stay exactly
+what Emacs wrote, and Emacs can keep editing them.
 
-Let’s get more specific.
+Upstream's own README is kept as [README-upstream.md](README-upstream.md).
 
-SilverBullet combines a clean live-preview editor with wiki-style linking, a built-in database and query language, and a fully integrated Space Lua scripting environment, turning your notes into a programmable system that grows with you.
+> **Proof of concept.** It reads and edits a real library, but see
+> [What is not supported yet](docs/Org%20Mode.md#what-is-not-supported-yet) and
+> the [Denote roadmap](docs/Denote.md#roadmap).
 
-In SilverBullet you keep your content as a collection of Markdown Pages (called a Space). You navigate your space using the Page Picker like a traditional notes app, or through Links like a wiki (except they are bi-directional).
+## Why a fork and not a plug
 
-If you are the **writer** type, you’ll appreciate SilverBullet as a clean Markdown editor with Live Preview. If you have more of an **outliner** personality, SilverBullet has Outlining tools for you. Productivity freak? Have a look at Tasks. More of a **database** person? You will appreciate Objects and Queries (SLIQ). 
+SilverBullet is extensible through plugs, and the Denote half of this
+(`plugs/index/denote.ts`) is plug-shaped. The Org half is not, for two reasons
+a sandboxed plug cannot get around:
 
-And if you are comfortable **programming** a little bit — now we’re really talking. You will love _dynamically generating content_ with Space Lua (SilverBullet’s Lua dialect), or to use it to create custom Commands, Page Templates or Widgets.
+* A plug cannot register a **CodeMirror language**, and Org needs a parser.
+* `.org` has to be in `pageExtensions` (`plug-api/lib/ref.ts`) for refs to
+  resolve to it. That is core, and everything that parses a ref reads it.
 
-You were told there’s no such thing as a silver bullet. You were told wrong.
+So this modifies ~48 files upstream owns. If Org support ever landed upstream,
+Denote could be extracted into a plug.
 
-[Much more detail can be found on silverbullet.md](https://silverbullet.md)
+**The trick that keeps the diff small:** the Org parser emits *Markdown's own
+node vocabulary* — `ATXHeadingN`, `ListItem`, `Task`, `FencedCode`, `Table`.
+Every existing indexer and live-preview decoration dispatches on node names
+rather than on file type, so tasks, tables, outlines, backlinks and queries all
+work on Org without knowing Org exists.
 
-## Installing SilverBullet
-Check out the [instructions](https://silverbullet.md/Install).
+## Keybindings
 
-## Developing SilverBullet
-SilverBullet's frontend ("client") is written in [TypeScript](https://www.typescriptlang.org/) and built on top of the excellent [CodeMirror 6](https://codemirror.net/) editor component. Additional UI is built using [Preact](https://preactjs.com). [ESBuild](https://esbuild.github.io) is used to build the frontend.
+Org outline motions follow `evil-org`, and folding follows `org-cycle`.
 
-The server backend is written in [Rust](https://www.rust-lang.org/) (a Cargo workspace). It serves the pre-built client bundle, the file/space HTTP API, authentication, and a headless-Chrome runtime for server-side Lua.
+| Key | Does | Emacs equivalent |
+|---|---|---|
+| `Tab` | Fold cycle on a headline: FOLDED → CHILDREN → SUBTREE | `org-cycle` |
+| `Shift-Tab` | Whole buffer: OVERVIEW → CONTENTS → SHOW ALL | `org-shifttab` |
+| `Alt-j` / `Alt-k` | Move item down / up | `org-metadown` / `org-metaup` |
+| `Alt-l` / `Alt-h` | Indent / outdent item | `org-metaright` / `org-metaleft` |
 
-## Code structure
-* `bin/silverbullet/`: The standalone `silverbullet` server binary (Rust) (this is the one you generally run)
-* `bin/sb/`: The `sb` CLI client (Rust)
-* `bin/plug-compile.ts`: the plug compiler
-* `client/`: The SilverBullet client (browser, TypeScript)
-* `server/`: The SilverBullet server library (Rust): HTTP router, handlers, auth, runtime seam
-* `server-common/`: Shared Rust crate (space primitives, shared types)
-* `server-runtime-chrome/`: Headless-Chrome runtime backend (Rust)
-* `plugs`: Set of built-in plugs (TypeScript) that are distributed with SilverBullet
-* `libraries`: A set of libraries (space scripts, page templates, slash templates) distributed with SilverBullet (Space Lua)
-* `plug-api/`: Useful APIs for use in plugs and published to NPM
-  * `lib/`: Useful libraries to be used in plugs
-  * `syscalls/`: TypeScript wrappers around syscalls
-  * `types/`: Various (client) types that can be references from plugs
-* `scripts/`: Useful scripts
-* `docs/`: documentation (also serves a silverbullet.md website content)
+`Alt-<letter>` needs a workaround on macOS: Option composes characters (`⌥J`
+arrives as `∆`) and CodeMirror deliberately will not fall back to the base
+layout. These bindings are matched on `event.code`, the physical key. `Mod-. j`
+and the arrow-key forms work everywhere.
 
-### Requirements
-* [Node.js](https://nodejs.org/) 24+ and npm 10+: Used to build the frontend (client) and plugs
-* [Rust](https://www.rust-lang.org/tools/install) (stable, via `rustup`): Used to build the server
+## Commands
 
-The project includes `.nvmrc` and `.node-version` files. If you use [nvm](https://github.com/nvm-sh/nvm) or another Node version manager, it will automatically use the correct Node.js version:
+| Command | Emacs equivalent |
+|---|---|
+| `Denote: New Note` | `denote` |
+| `Denote: New Note with Signature` | `denote-signature` |
+| `Denote: Link or Create` | `denote-link-or-create` |
+| `Denote: Rename File from Front Matter` | `denote-rename-file-using-front-matter` |
+| `Denote: Update Dynamic Blocks` | `org-update-all-dblocks` |
+| `Denote: Insert Links Block` and three siblings | `denote-org-extras-dblock-insert-*` |
 
-```shell
-nvm use  # If using nvm
+Two more are reached without the palette:
+
+* **The page picker's create row** is `denote-open-or-create` — type a title
+  that does not exist, and it mints a properly named Denote note.
+* **`[[` on a Denote note** offers a *Create "…" as a Denote note* row. A
+  Denote link addresses a note by identifier, and an identifier only exists
+  once the file does, so the note is created first and linked afterwards.
+
+Backlinks are the stock **Linked Mentions** panel (`Navigate: Linked
+Mentions`), which lists notes by title with the context line.
+
+## Configuration
+
+| Key | Default | Meaning |
+|---|---|---|
+| `denote.fileType` | `org` | Format new notes are written in |
+| `denote.renameOnSave` | `true` | Rename the file when its front matter changes |
+| `denote.updateDblocksOnSave` | `true` | Regenerate dynamic blocks on save |
+
+If you keep the library in Emacs, exclude its droppings — otherwise 1,000+
+`.org~` backups are indexed as attachments:
+
+```
+SB_SPACE_IGNORE='*~
+\#*#
+*.sync-conflict-*'
 ```
 
-First, install dependencies:
+The `\#` escape matters: gitignore reads a leading `#` as a comment, so an
+unescaped `#*#` is silently discarded.
 
-```shell
-make setup
+## Documentation
+
+* **[docs/Denote.md](docs/Denote.md)** — the naming scheme, front matter,
+  linking, dynamic blocks, and a roadmap of the ~50 `denote-*` commands
+* **[docs/Org Mode.md](docs/Org%20Mode.md)** — supported syntax and how the
+  parser works
+
+## Keeping up with upstream
+
+```sh
+git remote add upstream https://github.com/silverbulletmd/silverbullet.git
+git fetch upstream && git rebase upstream/main
 ```
 
-To create a (release) build:
+## Development
 
-```shell
-make
-```
+Same as upstream: `npm ci`, then `npm run build` and `cargo build --release -p
+silverbullet`. Tests are `npx vitest run` (2,360) and `npx playwright test
+--project=chromium` — `e2e/denote.test.ts` holds 32 Denote/Org end-to-end
+tests, whose fixtures are three real notes from the public
+[l-o-l-h/law](https://github.com/l-o-l-h/law) library.
 
-This will produce `silverbullet` and `cli` binaries in `./target/release/`, run `./target/release/silverbullet` to run the server.
-
-### Development workflow
-
-SilverBullet has two halves you rebuild **independently**:
-
-* The **client** (TypeScript: `client/`) is built by ESBuild into `client_bundle/`, which the server then serves.
-* The **server** (Rust: `server/`, `server-common/`, `server-runtime-chrome/`, `bin/silverbullet/`) is a compiled binary.
-
-Run the server in development with `cargo run`. A **debug** build serves the client bundle **live from `client_bundle/` on disk** (a release build embeds it instead):
-
-```shell
-npm run build
-cargo run <PATH-TO-YOUR-SPACE>
-```
-
-**When you change only the client** (TypeScript in `client/`): you do **not** need to restart the server. Rebuild just the client bundle and reload the page in your browser — the debug server serves the freshly-built bundle straight from disk:
-
-```shell
-npm run build
-```
-
-To build a self-contained **release** binary (with the client bundle embedded), and run it:
-
-```shell
-make
-./target/release/silverbullet <PATH-TO-YOUR-SPACE>
-```
-
-### Useful development tasks
-
-```shell
-# Clean all generated files
-make clean
-# Typecheck and lint all code
-make check
-# Format all code
-make fmt
-# Run all tests
-make test
-# Run benchmarks
-make bench
-```
-
-### Build a docker container
-Note, you do not need Node.js nor Go locally installed for this to work:
-
-```shell
-docker build -t silverbullet .
-```
-
-To run:
-```shell
-docker run -p 3000:3000 -v <PATH-TO-YOUR-SPACE>:/space silverbullet
-```
+The parser was validated against all 457 notes in that library: 456 parsed, 0
+missing identifiers, 0 signature mismatches.
