@@ -98,6 +98,76 @@ functions:
     events:
       - page:index
 
+  # Denote
+  newDenoteNote:
+    path: ./denote.ts:newDenoteNoteCommand
+    command:
+      name: "Denote: New Note"
+      requireMode: rw
+  denoteInsertLinksDblock:
+    path: ./denote.ts:insertLinksDblockCommand
+    command:
+      name: "Denote: Insert Links Block"
+      requireMode: rw
+      requireEditor: page
+  denoteInsertBacklinksDblock:
+    path: ./denote.ts:insertBacklinksDblockCommand
+    command:
+      name: "Denote: Insert Backlinks Block"
+      requireMode: rw
+      requireEditor: page
+  denoteInsertMissingLinksDblock:
+    path: ./denote.ts:insertMissingLinksDblockCommand
+    command:
+      name: "Denote: Insert Missing Links Block"
+      requireMode: rw
+      requireEditor: page
+  denoteInsertTodaysLinksDblock:
+    path: ./denote.ts:insertTodaysLinksDblockCommand
+    command:
+      name: "Denote: Insert Today's Links Block"
+      requireMode: rw
+      requireEditor: page
+  denoteUpdateDynamicBlocks:
+    path: ./denote.ts:updateDynamicBlocksCommand
+    command:
+      name: "Denote: Update Dynamic Blocks"
+      requireMode: rw
+      requireEditor: page
+  denoteUpdateDblocksOnSave:
+    path: ./denote.ts:updateDynamicBlocksOnSave
+    events:
+      - page:saved
+
+  denoteRenameFromFrontMatter:
+    path: ./denote.ts:renameFromFrontMatterCommand
+    command:
+      name: "Denote: Rename File from Front Matter"
+      requireMode: rw
+      requireEditor: page
+  denoteRenameOnSave:
+    path: ./denote.ts:renameFromFrontMatterOnSave
+    events:
+      - page:saved
+
+  newDenoteNoteWithSignature:
+    path: ./denote.ts:newDenoteNoteWithSignatureCommand
+    command:
+      name: "Denote: New Note with Signature"
+      requireMode: rw
+  denoteLinkOrCreate:
+    path: ./denote.ts:denoteLinkOrCreateCommand
+    command:
+      name: "Denote: Link or Create"
+      requireMode: rw
+      requireEditor: page
+  # `denote-open-or-create`: what the page picker's create row calls.
+  denoteOpenOrCreate:
+    path: ./denote.ts:denoteOpenOrCreate
+  # The `[[` completion's create row -- see `denoteCreateFromLink`.
+  denoteCreateFromLink:
+    path: ./denote.ts:denoteCreateFromLink
+
   # Headers
   headerComplete:
     path: header.ts:headerComplete

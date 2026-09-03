@@ -52,6 +52,38 @@ export function isMarkdownPath(path: Path): boolean {
 }
 
 /**
+ * File extensions SilverBullet edits and indexes as *pages* — text it parses
+ * into a tree — rather than as opaque documents handed to a document editor.
+ * Only `md` is name-bearing: an Org page keeps its extension in its name
+ * (`Notes.org`), so `Notes.md` and `Notes.org` never collide.
+ */
+export const pageExtensions = ["md", "org"];
+
+/**
+ * Determines whether a ref points to a page (Markdown or Org), as opposed to a
+ * document that needs a dedicated editor.
+ *
+ * Note the empty path counts as a page, matching {@link isMarkdownPath}: an
+ * empty ref means "the page you're on". Callers slicing a path out of a URL
+ * must reject the empty string themselves rather than let it fall through as
+ * a page.
+ */
+export function isPagePath(path: Path): boolean {
+  return pageExtensions.includes(getPathExtension(path));
+}
+
+/**
+ * The file path backing a page name: `Notes` → `Notes.md`, `Notes.org` →
+ * `Notes.org`.
+ */
+export function pathFromPageName(name: string): Path {
+  const extension = getPathExtension(name as Path);
+  return extension !== "md" && pageExtensions.includes(extension)
+    ? (name as Path)
+    : `${name}.md`;
+}
+
+/**
  * Adds an `md` extension to any path without an extension or a path ending in
  * `.conflicted`, except to the empty path
  * @param path The path to normalize. Cannot contain any position or header

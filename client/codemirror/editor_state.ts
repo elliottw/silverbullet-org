@@ -50,6 +50,13 @@ import { plugLinter } from "./lint.ts";
 import { readOnlyCursorActive } from "./util.ts";
 import { isValidEditor } from "../lib/command_filters.ts";
 import { buildExtendedMarkdownLanguage } from "../markdown_parser/parser.ts";
+import { buildOrgLanguage } from "../org_parser/parser.ts";
+import { orgCycle, orgGlobalCycle } from "./org_cycle.ts";
+import {
+  getPathExtension,
+  type Path,
+  pathFromPageName,
+} from "@silverbulletmd/silverbullet/lib/ref";
 import { safeRun } from "@silverbulletmd/silverbullet/lib/async";
 import { codeCopyPlugin } from "../codemirror/code_copy.ts";
 import { externalPresence } from "./external_presence.ts";
@@ -97,7 +104,7 @@ export function createEditorState(
   // Build the markdown language with any custom syntax extensions
   client.markdownLanguageCompartment = new Compartment();
   const markdownLanguageExtension = client.markdownLanguageCompartment.of(
-    buildMarkdownLanguageExtension(client),
+    buildPageLanguageExtension(client, pathFromPageName(pageName)),
   );
 
   const vimMode = client.ui.viewState.uiOptions.vimMode;
@@ -467,7 +474,60 @@ export function createCommandKeyBindings(client: Client): Extension {
     }
   }
 
-  return keymap.of([...commandKeyBindings]);
+  return [
+    keymap.of([...commandKeyBindings]),
+    macAltLetterFallback(commandKeyBindings),
+  ];
+}
+
+/**
+ * Makes `Alt-<letter>` command bindings reachable on macOS.
+ *
+ * There, Option composes a character — `⌥J` arrives as `key: "∆"` — and
+ * CodeMirror deliberately declines to fall back to the base keyboard layout
+ * for plain Alt combinations on Mac, on the grounds that they are usually text
+ * input (see the `browser.mac && event.altKey` guard in @codemirror/view's
+ * keymap). The consequence is that an `Alt-j` binding can never fire on a Mac.
+ *
+ * These bindings are therefore matched on `event.code`, the physical key,
+ * which is unaffected by the composition. Only letters that a command actually
+ * claims are intercepted, so every other Option combination still types its
+ * character.
+ */
+function macAltLetterFallback(bindings: KeyBinding[]): Extension {
+  if (!isMacLike) {
+    return [];
+  }
+  const byCode = new Map<string, () => boolean>();
+  for (const binding of bindings) {
+    const match = /^Alt-([a-zA-Z])$/.exec(binding.key ?? binding.mac ?? "");
+    if (match && binding.run) {
+      byCode.set(
+        `Key${match[1].toUpperCase()}`,
+        binding.run as unknown as () => boolean,
+      );
+    }
+  }
+  if (byCode.size === 0) {
+    return [];
+  }
+  return Prec.high(
+    EditorView.domEventHandlers({
+      keydown: (event) => {
+        // Option alone: with Ctrl or Cmd also held, CodeMirror's own fallback
+        // already works and this would double-handle.
+        if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) {
+          return false;
+        }
+        const run = byCode.get(event.code);
+        if (!run) {
+          return false;
+        }
+        event.preventDefault();
+        return run();
+      },
+    }),
+  );
 }
 
 export function createRegularKeyBindings(client: Client): Extension {
@@ -511,7 +571,59 @@ async function enableVimMode(client: Client) {
  */
 export const isMacLike = /(Mac|iPhone|iPod|iPad)/i.test(navigator.platform);
 
-export function buildMarkdownLanguageExtension(client: Client): Extension[] {
+// Languages already loaded highlight a `#+BEGIN_SRC` body immediately; a lazy
+// one is fetched in the background, and the language compartment is rebuilt
+// once it lands so the block picks it up without an edit.
+const pendingNestedLanguages = new Set<string>();
+
+function nestedCodeParser(client: Client, info: string) {
+  const language = languageFor(info);
+  if (language) {
+    return language.parser;
+  }
+  if (info in lazyLanguages && !pendingNestedLanguages.has(info)) {
+    pendingNestedLanguages.add(info);
+    void loadLanguageFor(info)
+      .then(() => client.reconfigureLanguage())
+      .catch((e) => console.warn("Could not load language", info, e));
+  }
+  return null;
+}
+
+/**
+ * The language extension for a page, picked from its file extension: Org for
+ * `.org`, the SilverBullet Markdown dialect for everything else.
+ */
+export function buildPageLanguageExtension(
+  client: Client,
+  path: Path,
+): Extension[] {
+  const autoCloseBrackets = {
+    closeBrackets: {
+      brackets: client.config.get("autoCloseBrackets", "([{").split(""),
+    },
+  };
+  if (getPathExtension(path) === "org") {
+    const orgLanguage = buildOrgLanguage((info) =>
+      nestedCodeParser(client, info),
+    );
+    return [
+      new LanguageSupport(orgLanguage),
+      Prec.high(
+        keymap.of([
+          {
+            key: "Enter",
+            run: customEnterCommand,
+          },
+          // Org's TAB cycling. Both fall through when the cursor is not on
+          // something foldable, so TAB keeps indenting and completing.
+          { key: "Tab", run: orgCycle },
+          { key: "Shift-Tab", run: orgGlobalCycle },
+        ]),
+      ),
+      orgLanguage.data.of(autoCloseBrackets),
+    ];
+  }
   const syntaxExtensions = client.config.get("syntaxExtensions", {});
   const markdownLanguage = buildExtendedMarkdownLanguage(syntaxExtensions);
   return [
@@ -545,10 +657,6 @@ export function buildMarkdownLanguageExtension(client: Client): Extension[] {
         { key: "Backspace", run: deleteMarkupBackward },
       ]),
     ),
-    markdownLanguage.data.of({
-      closeBrackets: {
-        brackets: client.config.get("autoCloseBrackets", "([{").split(""),
-      },
-    }),
+    markdownLanguage.data.of(autoCloseBrackets),
   ];
 }

@@ -8,7 +8,7 @@ import {
 import { htmlEscape } from "./html_render.ts";
 import {
   getPathExtension,
-  isMarkdownPath,
+  isPagePath,
   parseToRef,
 } from "@silverbulletmd/silverbullet/lib/ref";
 import {
@@ -356,7 +356,7 @@ export async function readTransclusionContent(
   const ref = parseToRef(transclusion.url);
   // Anchor refs (e.g. $name or Page$name) have an empty or page-only path;
   // allow them through since readRef handles them via the anchorResolver.
-  if (!ref || (ref.details?.type !== "anchor" && !isMarkdownPath(ref.path))) {
+  if (!ref || (ref.details?.type !== "anchor" && !isPagePath(ref.path))) {
     throw Error(
       `Couldn't transclude markdown, invalid path: ${transclusion.url}`,
     );

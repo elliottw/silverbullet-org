@@ -1,3 +1,4 @@
+import { isPagePath, type Path } from "@silverbulletmd/silverbullet/lib/ref";
 import { index, lua } from "@silverbulletmd/silverbullet/syscalls";
 import type {
   Edge,
@@ -193,7 +194,7 @@ async function findIndexed(
 
 export function classifyKind(ref: string): ObjectKind {
   if (/^https?:\/\//.test(ref)) return "url";
-  if (/^[^/]+\.[^/]+$/.test(ref) && !ref.endsWith(".md")) return "file";
+  if (/^[^/]+\.[^/]+$/.test(ref) && !isPagePath(ref as Path)) return "file";
   return "page";
 }
 

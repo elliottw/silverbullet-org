@@ -1,6 +1,7 @@
 import { HighlightStyle } from "@codemirror/language";
 import { tagHighlighter, tags as t } from "@lezer/highlight";
 import * as ct from "./markdown_parser/customtags.ts";
+import { OrgUnderlineTag } from "./org_parser/node_types.ts";
 
 export default function highlightStyles() {
   tagHighlighter;
@@ -42,6 +43,7 @@ export default function highlightStyles() {
     { tag: t.variableName, class: "sb-variableName" },
     { tag: t.typeName, class: "sb-typeName" },
     { tag: t.strikethrough, class: "sb-strikethrough" },
+    { tag: OrgUnderlineTag, class: "sb-org-underline" },
     { tag: t.comment, class: "sb-comment" },
     { tag: t.invalid, class: "sb-invalid" },
     { tag: t.processingInstruction, class: "sb-meta" },

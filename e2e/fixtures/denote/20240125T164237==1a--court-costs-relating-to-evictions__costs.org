@@ -1,0 +1,142 @@
+#+title:      Court Costs Relating to Evictions
+#+date:       [2024-01-25 Thu 16:42]
+#+filetags:   :costs:
+#+identifier: 20240125T164238
+
+* RCW 59.18.410  Forcible entry or detainer or unlawful detainer actions—Notice of default—Writ of restitution—Judgment—Execution.
+1. ... The court may award statutory costs.  The court may also award reasonable attorneys' fees as provided in RCW 59.18.290.
+
+
+* RCW 36.18.012(4)
+4. [@4] If the defendant serves or files an answer to an unlawful detainer complaint under chapter 59.18 or 59.20 RCW, the plaintiff shall pay before proceeding with the unlawful detainer action one hundred twelve dollars.
+
+* RCW 36.18.020 Clerk's fees, surcharges.
+2. [@2]Clerks of superior courts shall collect the following fees for their official services:
+   - (a) In addition to any other fee required by law,
+     - the party filing the first or initial document in any civil action,
+       - including, but not limited to an action for restitution, adoption, or change of name,
+     - and any party filing a counterclaim, cross-claim, or third-party claim in any such civil action,
+       - shall pay, at the time the document is filed, a fee of *$200*
+       - except, in an unlawful detainer action under chapter 59.18 or 59.20 RCW for which the plaintiff shall pay a case initiating filing fee of *$45*,
+       - or in proceedings filed under RCW 28A.225.030 alleging a violation of the compulsory attendance laws where the petitioner shall not pay a filing fee.
+       - The *$45* filing fee under this subsection for an unlawful detainer action shall not include an order to show cause or any other order or judgment except a default order or default judgment in an unlawful detainer action.
+   - (b) Any party, except a defendant in a criminal case, filing the first or initial document on an appeal from a court of limited jurisdiction or any party on any civil appeal, shall pay, when the document is filed, a fee of $200.
+5. [@5](a) In addition to the fees required to be collected under this section, clerks of the superior courts must collect surcharges as provided in this subsection (5) of which 75 percent must be remitted to the state treasurer for deposit in the judicial stabilization trust account and 25 percent must be retained by the county.
+   - (c) On all filing fees required to be collected under this section, except for fees required under subsection (2)(b), (d), and (h) of this section, a surcharge of $40 must be collected.
+
+
+** Clark County Clerk's Fee Schedule
+[[https://clark.wa.gov/clerk/fee-schedule][FEE SCHEDULE]]
+- Unlawful Detainer : $197.00 ($85.00 + $112.00)
+  1. Original Filing : $85.00 ($45 + $40) (RCW 36.18.020(2)(a), RCW 36.18.020(5)(a),(c))
+  2. Filing of any order other than Default Order and Default Judgment (or when answer filed) $112.00
+- Writ of Restitution : $20.00 (RCW 36.18.016(6), RCW 36.18.050)
+
+
+* RCW 36.18.040 Sheriff's Fee
+1. Sheriffs shall collect the following fees for their official services:
+   - (a) For service of each summons and complaint, notice and complaint, summons and petition, and notice of small claim on one defendant at any location, ten dollars, and on two or more defendants at the same residence, twelve dollars, besides mileage;
+   - (b) For making a return, besides mileage actually traveled, seven dollars;
+   - (e) For serving writ of possession or restitution without aid of the county, besides mileage, twenty-five dollars;
+   - (f) For serving writ of possession or restitution with aid of the county, besides mileage, forty dollars plus thirty dollars for each hour after one hour;
+2. Fees allowable under this section may be recovered by the prevailing party incurring the same as *court costs*.
+   - Nothing contained in this section permits the expenditure of public funds to defray costs of private litigation. Such costs shall be borne by the party seeking action by the sheriff, and may be recovered from the proceeds of any subsequent judicial sale, or may be added to any judgment upon proper application to the court entering the judgment.
+3. Notwithstanding subsection (1) of this section, a county legislative authority may set the amounts of fees that shall be collected by the sheriff under subsection (1) of this section to cover the costs of administration and operation.
+
+
+** Clark County Sheriff's Fee Schedule
+[[https://clark.wa.gov/sheriff/evictions/writs-restitution][SHERIFF'S CITE FOR EVICTIONS/WRITS OF RESTITUTION]]
+- -Deposit: for information contact civil unit at (564) 397-2225 FORMS OF PAYMENT ACCEPTED ARE: CASH, MONEY ORDER or ATTORNEY’S CHECK.
+- [2024-01-26 Fri 08:00] Email From Clark County Sheriff's Office Civil Unit:
+  - Deposits for evictions are based on the address of the property.
+  - If you have this information, I can tell you the cost.
+  - If there is any used deposit, this will be refunded.
+  - Our office sends a request to the County Auditor's office to mail a check for the refund once the case is processed and closed.
+  - For the address provided, ..., Vancouver, WA 98661 the deposit would be $120.00.
+
+
+* [[https://app.leg.wa.gov/RCW/default.aspx?cite=4.84.001][RCW 4.84.010 Costs allowed to prevailing party—Defined]]
+The measure and mode of compensation of attorneys and counselors, shall be left to the agreement, expressed or implied, of the parties, but there shall be allowed to the prevailing party upon the judgment certain sums for the prevailing party's expenses in the action, which allowances are termed costs, including, in addition to costs otherwise authorized by law, the following expenses:
+1. Filing fees;
+2. Fees for the service of process by a public officer, registered process server, or other means, as follows:
+   1. When service is by a public officer, the recoverable cost is the fee authorized by law at the time of service.
+   2. If service is by a process server registered pursuant to chapter 18.180 RCW or a person exempt from registration, the recoverable cost is the amount actually charged and incurred in effecting service;
+3. Fees for service by publication;
+4. Notary fees, but only to the extent the fees are for services that are expressly required by law and only to the extent they represent actual costs incurred by the prevailing party;
+5. Reasonable expenses, exclusive of attorneys' fees, incurred in obtaining reports and records, which are admitted into evidence at trial or in mandatory arbitration in superior or district court, including but not limited to medical records, tax records, personnel records, insurance reports, employment and wage records, police reports, school records, bank records, and legal files;
+6. Statutory attorney and witness fees; and
+7. To the extent that the court or arbitrator finds that it was necessary to achieve the successful result, the reasonable expense of the transcription of depositions used at trial or at the mandatory arbitration hearing: PROVIDED, That the expenses of depositions shall be allowed on a pro rata basis for those portions of the depositions introduced into evidence or used for purposes of impeachment.
+
+
+** Summary of RCW 4.84.010 Costs
+- There shall be allowed to the prevailing party upon the judgment certain sums for the prevailing party's expenses in the action, which allowances are terms costs, whcih include the follow expenses:
+  - Filing fees
+  - Fees for the service of process by a registered process server
+    - amount actually charged and incurred in effecting service;
+
+
+* RCW 4.84.090 Cost bill—Witnesses to report attendance
+- The prevailing party, in addition to allowance for costs, as provided in RCW 4.84.080, shall also be allowed for all necessary disbursements, including the fees of officers allowed by law, the fees of witnesses, the necessary expenses of taking depositions, by commission or otherwise, and the compensation of referees.
+- The court shall allow the prevailing party all service of process charges in case such process was served by a person or persons not an officer or officers.
+- Such service charge shall be the same as is now allowed or shall in the future be allowed as fee and mileage to an officer.
+- The disbursements shall be stated in detail and verified by affidavit, and shall be served on the opposite party or his or her attorney, and filed with the clerk of the court, within ten days after the judgment:
+- PROVIDED, The clerk of the court shall keep a record of all witnesses in attendance upon any civil action, for whom fees are to be claimed, with the number of days in attendance and their mileage, and no fees or mileage for any witness shall be taxed in the cost bill unless they shall have reported their attendance at the close of each day's session to the clerk in attendance at such trial.
+
+
+* [[https://app.leg.wa.gov/RCW/default.aspx?cite=18.180.035][RCW 18.180.035 Fees—Limitations]]
+1. A process server required to register under RCW 18.180.010(1) or exempt from registration under *RCW 18.180.010(2) (a), (c), or (d) shall be allowed to charge and collect the following fees in civil actions, suits, and proceedings for each service assignment delivered to the process server for service:
+   1. If the fee is not greater than one hundred dollars, then the actual amount charged to a party for service;
+   2. If the fee is greater than one hundred dollars, then a reasonable amount charged to a party for service.
+2. Any fees allowable under this section, and actually charged by a process server, shall be a reasonable cost awarded to, and recoverable by, the party incurring same if that party prevails in an action.
+
+
+** Review of RCW 18.180.035
+RCW 4.84.010 used to allow only for a reasonable process server fee.  This statute ([[https://lawfilesext.leg.wa.gov/biennium/2007-08/Pdf/Bills/Session%20Laws/Senate/6059.SL.pdf?cite=2007%20c%20121%20%C2%A7%202][SB 6059]]) allows for $100 as a reasonable fee limit; over $100 is perhaps not reasonable.
+
+
+* CR 54.  Judgments and Costs
+(d) Costs, Disbursements, Attorneys’ Fees, and Expenses.
+1. /Costs and Disbursements/.  Costs and disbursements shall be fixed and allowed as provided in RCW 4.84 or by any other applicable statute.  If the party to whom costs are awarded does not file a cost bill or an affidavit detailing disbursements within 10 days after the entry of the judgment, the clerk shall tax costs and disbursements pursuant to CR 78(e).
+
+
+* CR 58.  Entry of Judgment
+
+
+* CR 78.  Clerks
+(e) *Entry of Judgments and Costs.* The clerk shall enter judgment or decree pursuant to the provisions of rule 58 and the same shall then be entered for the sum found due or the relief awarded, with costs and disbursements, if any, to be taxed. Entry of judgment shall not be delayed for the taxing of costs. If no cost bill is filed by the party to whom costs are awarded within 10 days after the entry of the judgment or decree, the clerk shall proceed to tax the following costs and disbursements, namely:
+1. The statutory attorney fee;
+2. The clerk's fee; and
+3. The sheriff's fee.
+
+
+- If a cost bill is filed, the clerk shall enter as the amount to be recovered the amount claimed in such cost bill, and no motion to retax costs shall be considered unless the same be filed within six (6) days after the filing of the cost bill.
+
+- For purposes of this subsection (e), “cost bill” also includes affidavit detailing disbursements.
+
+
+* Costs are Statutory
+
+Right to costs is purely statutory.  State ex rel. Lemon v. Coffin
+(1958) 52 Wash.2d 894, 327 P.2d 741, opinion clarified 52 Wash.2d 894,
+332 P.2d 1096.  Costs, Fees, And Sanctions Key Number 544
+
+Costs, which are taxed by clerk, are not part of judgment at time it
+is rendered.  Hatzenbuhler v. Harrison (1957) 49 Wash.2d 691, 306
+P.2d 745.  Judgment Key Number 224
+
+Allowance of costs is governed by statute;  and prayer for them in
+complaint is not necessary.  Lujan v. Santoya (1952) 41 Wash.2d 499,
+250 P.2d 543.  Costs, Fees, And Sanctions Key Number 544;  Judgment
+Key Number 253(2)
+
+Costs are purely statutory and can be allowed only when statute gives
+them;  and there is no statute authorizing allowance of costs to
+acquitted defendant in criminal case.  State v. Pearl (1931) 163
+Wash. 268, 1 P.2d 315.
+
+Where new trial is granted and neither of parties prevail, matter of
+awarding costs should be held in abeyance to await final determination
+of cause.  Leach v. Erickson (1931) 161 Wash. 473, 297 P. 738.
+
+Costs follow as incident to judgment.  Briglio v. Holt & Jeffery
+(1916) 91 Wash. 644, 158 P. 347.

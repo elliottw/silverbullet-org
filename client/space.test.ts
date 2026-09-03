@@ -173,3 +173,44 @@ describe("readRef anchor variant", () => {
     );
   });
 });
+
+const testOrgPage = `* Planning
+Some text under planning.
+
+** Milestones
+- [ ] Draft the spec
+
+* Delivery
+Another paragraph.
+`;
+
+test("Org files behave as pages, keeping their extension in the name", async () => {
+  const kv = new MemoryKvPrimitives();
+  const eventHook = new EventHook();
+  const space = new Space(new DataStoreSpacePrimitives(kv), eventHook);
+  await sleep(1);
+
+  // A Markdown and an Org page with the same stem must not collide.
+  await space.writePage("Project", "# Markdown project\n");
+  await space.writePage("Project.org", testOrgPage);
+
+  expect((await space.readPage("Project.org")).text).toEqual(testOrgPage);
+  expect((await space.readPage("Project")).text).toEqual(
+    "# Markdown project\n",
+  );
+
+  const names = (await space.fetchPageList()).map((page) => page.name).sort();
+  expect(names).toEqual(["Project", "Project.org"]);
+
+  // readRef parses the Org page with the Org parser, so headers resolve. As
+  // for Markdown, a section runs to the next headline at the *same* level.
+  expect(await space.readRef(parseToRef("Project.org#Planning")!)).toEqual({
+    text: testOrgPage.slice(0, testOrgPage.indexOf("* Delivery")),
+    offset: 0,
+  });
+
+  await space.deletePage("Project.org");
+  expect((await space.fetchPageList()).map((page) => page.name)).toEqual([
+    "Project",
+  ]);
+});

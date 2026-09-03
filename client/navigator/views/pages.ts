@@ -4,6 +4,7 @@ import {
   space,
   system,
 } from "@silverbulletmd/silverbullet/syscalls";
+import { pathFromPageName } from "@silverbulletmd/silverbullet/lib/ref";
 import { isMetaTag } from "@silverbulletmd/silverbullet/lib/tags";
 import type { ObjectValue } from "@silverbulletmd/silverbullet/type/index";
 import type { Decoration } from "../types.ts";
@@ -19,8 +20,17 @@ type PageObj = ObjectValue<Record<string, any>>;
  * whichever view is asking. Takes only what it reads (`tag`/`tags`), not the
  * full `ref`-guaranteed `PageObj`: `space_tree.ts` also calls this with a
  * synthesized tree folder, which has neither `ref` nor (usually) `tag`. */
-export function isMetaPage(obj: { tag?: string; tags?: string[] }): boolean {
+export function isMetaPage(obj: {
+  tag?: string;
+  tags?: string[];
+  identifier?: string;
+}): boolean {
   if (obj.tag !== "page") return false;
+  // A Denote note is content, never infrastructure. Its keywords are the
+  // author's own vocabulary, and `meta` there means "a note about the library"
+  // — not a SilverBullet meta page. Without this, a note keyworded `:meta:`
+  // vanishes from the picker's default segment.
+  if (typeof obj.identifier === "string" && obj.identifier !== "") return false;
   for (const tag of obj.tags ?? []) {
     if (tag === "template" || isMetaTag(tag)) return true;
   }
@@ -126,7 +136,7 @@ async function pagePickerSource(): Promise<PageObj[]> {
       // renamed or deleted -- but not in read-only mode, where there is
       // nothing left to do with it at all.
       if (!readOnly) unopenable.push(obj);
-    } else if (path === (isDocument ? obj.name : `${obj.name}.md`)) {
+    } else if (path === (isDocument ? obj.name : pathFromPageName(obj.name))) {
       // The page you are looking at is the one you are least likely to want.
       current.push(obj);
     } else if (opened[obj.name] !== undefined) {
@@ -140,23 +150,39 @@ async function pagePickerSource(): Promise<PageObj[]> {
   return [...recent, ...rest, ...current, ...aspiring, ...unopenable];
 }
 
+/**
+ * A Denote note carries an identifier, and writes its keywords as
+ * `:like:this:` rather than as hashtags — so its chips are drawn bare.
+ */
+function isDenoteNote(obj: PageObj): boolean {
+  return typeof obj.identifier === "string" && obj.identifier !== "";
+}
+
 function hashtagChips(obj: PageObj): Decoration[] {
   const tags: unknown = obj.tags;
   if (!Array.isArray(tags)) return [];
+  const bare = isDenoteNote(obj);
   return tags
     .filter((tag): tag is string => typeof tag === "string")
     .map((tag) => ({
-      text: `#${tag}`,
+      text: bare ? tag : `#${tag}`,
       position: "right" as const,
       cssClass: "sb-hashtag",
     }));
 }
 
+/** What a row is titled: the display name where there is one, else the name. */
+function pickerPrimary(obj: PageObj): string {
+  const prefix = obj.pageDecoration?.prefix ?? "";
+  return `${prefix}${obj.displayName ?? obj.name}`;
+}
+
 function pickerDescription(obj: PageObj): string | undefined {
   const parts: string[] = [];
-  const aliases: string[] = [];
-  if (obj.displayName) aliases.push(obj.displayName);
-  if (Array.isArray(obj.aliases)) aliases.push(...obj.aliases);
+  // A display name is the row's title, so it is not also listed as an alias of
+  // itself. The file name is deliberately not shown either: for a Denote note
+  // it is a slug of the title that is already on the row. It stays searchable.
+  const aliases = Array.isArray(obj.aliases) ? [...obj.aliases] : [];
   if (aliases.length > 0) parts.push(`(a.k.a. ${aliases.join(", ")})`);
   if (obj.description) parts.push(String(obj.description).slice(0, 200));
   return parts.length > 0 ? parts.join(" ") : undefined;
@@ -218,10 +244,7 @@ export const pagePicker: BuiltinView<PageObj> = {
     { label: "All", icon: "layers", placeholder: "Page or document" },
   ],
   row: {
-    primary: (obj) =>
-      obj.pageDecoration?.prefix
-        ? `${obj.pageDecoration.prefix}${obj.name}`
-        : obj.name,
+    primary: pickerPrimary,
     description: pickerDescription,
     decorations: (obj) => {
       if (obj.isAspiring) {
@@ -257,5 +280,9 @@ export const pagePicker: BuiltinView<PageObj> = {
   // you back where you left it. A create is a fresh page and has nothing to
   // restore.
   onSelect: (obj) => editor.open(obj.ref ?? obj.name),
-  onCreate: (phrase) => editor.navigate(phrase),
+  // `denote-open-or-create`, which falls back to plain navigation outside a
+  // Denote library. Creating by navigation alone would mint `<phrase>.md` --
+  // in a Denote library a file with no identifier, outside the naming scheme.
+  onCreate: (phrase) =>
+    system.invokeFunction("index.denoteOpenOrCreate", phrase),
 };

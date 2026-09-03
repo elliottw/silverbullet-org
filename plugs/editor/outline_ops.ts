@@ -579,7 +579,12 @@ function moveHeading(
 }
 
 /**
- * Adds or removes a '#' from all headings in a section, clamping at h1/h6.
+ * Adds or removes one heading marker from every heading in a section, clamping
+ * at h1/h6.
+ *
+ * The marker is read from the heading itself rather than assumed: Markdown
+ * writes `#` and Org writes `*`, and both parse to the same `ATXHeadingN`
+ * nodes, so the document is the only thing that knows which it is.
  */
 function adjustHeadingLevel(
   text: string,
@@ -617,7 +622,8 @@ function adjustHeadingLevel(
 
       newSectionText += sectionText.slice(pos, childFrom);
       if (delta === 1) {
-        newSectionText += `#${sectionText.slice(childFrom, childTo)}`;
+        const marker = sectionText.charAt(childFrom);
+        newSectionText += `${marker}${sectionText.slice(childFrom, childTo)}`;
       } else {
         newSectionText += sectionText.slice(childFrom + 1, childTo);
       }

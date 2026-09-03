@@ -7,6 +7,11 @@ import type {
   FileMeta,
   ObjectValue,
 } from "@silverbulletmd/silverbullet/type/index";
+import {
+  getNameFromPath,
+  isPagePath,
+  type Path,
+} from "@silverbulletmd/silverbullet/lib/ref";
 import { relationToLink } from "../../plugs/index/link.ts";
 import type { Config } from "../config.ts";
 import type { EventHook } from "../plugos/hooks/event.ts";
@@ -44,7 +49,7 @@ const indexVersionKey = ["$indexVersion"];
 const reindexInProgressKey = ["$reindexInProgress"];
 
 // Bump this one every time a full reindex is needed
-const desiredIndexVersion = 14;
+const desiredIndexVersion = 15;
 
 type TagDefinition = {
   tagPage?: string;
@@ -602,8 +607,8 @@ export class ObjectIndex {
     const missing: string[] = [];
     for (const file of files) {
       if (
-        file.name.endsWith(".md") &&
-        !indexedPages.has(file.name.slice(0, -3))
+        isPagePath(file.name as Path) &&
+        !indexedPages.has(getNameFromPath(file.name as Path))
       ) {
         missing.push(file.name);
       }
@@ -763,8 +768,8 @@ export class ObjectIndex {
    * @param file
    */
   public async clearFileIndex(file: string): Promise<void> {
-    if (file.endsWith(".md")) {
-      file = file.replace(/\.md$/, "");
+    if (isPagePath(file as Path)) {
+      file = getNameFromPath(file as Path);
     }
     // console.log("Clearing index for", file);
     const allKeys: KvKey[] = [];

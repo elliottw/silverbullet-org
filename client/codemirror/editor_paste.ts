@@ -14,7 +14,16 @@ import { safeRun } from "@silverbulletmd/silverbullet/lib/async";
 import { resolveMarkdownLink } from "@silverbulletmd/silverbullet/lib/resolve";
 import { localDateString } from "@silverbulletmd/silverbullet/lib/dates";
 import type { UploadFile } from "@silverbulletmd/silverbullet/type/client";
-import { isValidName, isValidPath } from "@silverbulletmd/silverbullet/lib/ref";
+import {
+  isValidName,
+  isValidPath,
+  type Path,
+} from "@silverbulletmd/silverbullet/lib/ref";
+import {
+  documentLink,
+  linkSyntaxFor,
+  urlLink,
+} from "@silverbulletmd/silverbullet/lib/link_syntax";
 import TurndownService from "turndown";
 // @ts-expect-error - No type definitions available for this package
 import { tables, taskListItems } from "@joplin/turndown-plugin-gfm";
@@ -115,10 +124,14 @@ export const pasteLinkExtension = ViewPlugin.fromClass(
                     {
                       from: from,
                       to: to,
-                      insert: `[${update.startState.sliceDoc(
-                        selection.from,
-                        selection.to,
-                      )}](${pastedString})`,
+                      insert: urlLink(
+                        linkSyntaxFor(client.currentPath()),
+                        pastedString,
+                        update.startState.sliceDoc(
+                          selection.from,
+                          selection.to,
+                        ),
+                      ),
                     },
                   ],
                 });
@@ -346,10 +359,11 @@ export function documentExtension(editor: Client) {
     }
 
     await editor.space.writeDocument(finalFilePath, file.content);
-    let documentMarkdown = `[[${finalFilePath}]]`;
-    if (file.contentType.startsWith("image/")) {
-      documentMarkdown = `!${documentMarkdown}`;
-    }
+    const documentMarkdown = documentLink(
+      linkSyntaxFor(editor.currentPath()),
+      finalFilePath as Path,
+      file.contentType.startsWith("image/"),
+    );
     editor.editorView.dispatch({
       changes: [
         {

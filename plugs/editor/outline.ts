@@ -17,7 +17,7 @@ async function applyOutlineOp(
 ) {
   const cursorPos = await editor.getCursor();
   const text = await editor.getText();
-  const tree = await markdown.parseMarkdown(text);
+  const tree = await markdown.parsePage(await editor.getCurrentPath(), text);
   const result = op(text, tree, cursorPos);
   if (result === "blocked") {
     await editor.flashNotification("Cannot move item further", "error");

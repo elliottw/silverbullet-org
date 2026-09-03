@@ -7,7 +7,7 @@ import {
   getOffsetFromHeader,
   getOffsetFromLineColumn,
   getPathExtension,
-  isMarkdownPath,
+  isPagePath,
   type Path,
 } from "@silverbulletmd/silverbullet/lib/ref";
 import type { PageMeta } from "@silverbulletmd/silverbullet/type/index";
@@ -34,7 +34,7 @@ import { computeExternalChanges } from "./external_merge.ts";
 import { parsePageMetaLastModified } from "./lib/page_meta.ts";
 import { DocumentEditor } from "./document_editor.ts";
 import { fsEndpoint } from "./spaces/constants.ts";
-import { parseMarkdown } from "./markdown_parser/parser.ts";
+import { parsePage } from "./page_parser.ts";
 import type { Client } from "./client.ts";
 import type { LocationState } from "./navigator.ts";
 
@@ -239,7 +239,7 @@ export class ContentManager {
     clearTimeout(this.saveTimeout);
 
     try {
-      if (isMarkdownPath(this.client.currentPath())) {
+      if (isPagePath(this.client.currentPath())) {
         await this.loadPage({ path: this.client.currentPath() }, false);
       } else {
         await this.loadDocumentEditor({ path: this.client.currentPath() });
@@ -288,7 +288,7 @@ export class ContentManager {
 
   async loadDocumentEditor(locationState: LocationState) {
     const path = locationState.path;
-    if (isMarkdownPath(path)) throw Error("This is a markdown path");
+    if (isPagePath(path)) throw Error("This is a page path");
 
     const { previousPath, loadingDifferentPath } =
       await this.leaveCurrentPage(path);
@@ -348,7 +348,7 @@ export class ContentManager {
     navigateWithinPage: boolean = true,
   ) {
     const path = locationState.path;
-    if (!isMarkdownPath(path)) throw Error("This is not a markdown path");
+    if (!isPagePath(path)) throw Error("This is not a page path");
 
     const { previousPath, loadingDifferentPath } =
       await this.leaveCurrentPage(path);
@@ -695,7 +695,7 @@ export class ContentManager {
 
   async reloadPageContent(source = "external"): Promise<void> {
     const path = this.client.currentPath();
-    if (!isMarkdownPath(path)) {
+    if (!isPagePath(path)) {
       return this.reloadEditor();
     }
     const doc = await this.client.space.readPage(getNameFromPath(path));
@@ -766,7 +766,7 @@ export class ContentManager {
   }
 
   private navigateWithinPage(pageState: LocationState) {
-    if (!isMarkdownPath(pageState.path)) return;
+    if (!isPagePath(pageState.path)) return;
 
     // We can't use getOffsetFromRef here, because it is asyncronous.
     let pos: number | undefined;
@@ -776,7 +776,7 @@ export class ContentManager {
       const pageText = this.client.editorView.state.sliceDoc();
 
       pos = getOffsetFromHeader(
-        parseMarkdown(pageText),
+        parsePage(pageState.path, pageText),
         pageState.details.header,
       );
 

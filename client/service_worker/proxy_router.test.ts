@@ -3,6 +3,7 @@ import {
   belongsToAnotherSpace,
   belongsToSiblingSpace,
   isInitialSyncLocalReadCandidate,
+  pageNavigationRedirect,
   scopedSiblingPrefixes,
 } from "./proxy_router.ts";
 
@@ -152,4 +153,34 @@ test("initial sync: non-fs paths are not local-read candidates", () => {
   expect(
     isInitialSyncLocalReadCandidate("GET", "/.config", syncModeHeaders),
   ).toBe(false);
+});
+
+test("initial sync: an Org page GET behaves like a Markdown one", () => {
+  // `.org` files are pages too, so a bare navigation to one keeps
+  // proxy-first behavior while a programmatic read may be served locally.
+  expect(
+    isInitialSyncLocalReadCandidate("GET", "/.fs/Notes.org", new Headers()),
+  ).toBe(false);
+  expect(
+    isInitialSyncLocalReadCandidate("GET", "/.fs/Notes.org", syncModeHeaders),
+  ).toBe(true);
+});
+
+test("a bare page URL under /.fs redirects to the page", () => {
+  expect(pageNavigationRedirect("/.fs/index.md", new Headers())).toBe("/index");
+  expect(pageNavigationRedirect("/.fs/Notes.org", new Headers())).toBe(
+    // Only `.md` is name-bearing, so an Org page keeps its extension.
+    "/Notes.org",
+  );
+  expect(pageNavigationRedirect("/.fs/photo.png", new Headers())).toBeNull();
+  // A programmatic read must be served, not bounced.
+  expect(pageNavigationRedirect("/.fs/index.md", syncModeHeaders)).toBeNull();
+  expect(pageNavigationRedirect("/index", new Headers())).toBeNull();
+});
+
+test("the file listing endpoint is never redirected", () => {
+  // `isPagePath("")` is true, so an unguarded check would bounce the file
+  // list to "/" and break sync under the service worker.
+  expect(pageNavigationRedirect("/.fs", new Headers())).toBeNull();
+  expect(pageNavigationRedirect("/.fs/", new Headers())).toBeNull();
 });

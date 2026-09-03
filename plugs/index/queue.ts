@@ -14,6 +14,11 @@ import type {
   MQMessage,
 } from "@silverbulletmd/silverbullet/type/datastore";
 import type { IndexTreeEvent } from "@silverbulletmd/silverbullet/type/event";
+import {
+  getNameFromPath,
+  isPagePath,
+  type Path,
+} from "@silverbulletmd/silverbullet/lib/ref";
 
 /// QUEUE PROCESSING
 
@@ -88,9 +93,9 @@ async function indexFile(path: string, alreadyCleared: boolean) {
   if (!alreadyCleared) {
     await index.clearFileIndex(path);
   }
-  if (path.endsWith(".md")) {
-    // Page
-    const name = path.slice(0, -3);
+  if (isPagePath(path as Path)) {
+    // Page (Markdown or Org)
+    const name = getNameFromPath(path as Path);
     let text: string, meta: any;
     try {
       ({ text, meta } = await space.readPageWithMeta(name));
@@ -101,7 +106,7 @@ async function indexFile(path: string, alreadyCleared: boolean) {
       }
       throw e;
     }
-    const tree = await markdown.parseMarkdown(text);
+    const tree = await markdown.parsePage(path, text);
 
     // Emit the event which will be picked up by indexers
     await events.dispatchEvent("page:index", {

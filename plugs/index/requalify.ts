@@ -4,7 +4,7 @@ import {
 } from "@silverbulletmd/silverbullet/lib/link_write";
 import {
   getNameFromPath,
-  type Path,
+  pathFromPageName,
 } from "@silverbulletmd/silverbullet/lib/ref";
 import { fileName } from "@silverbulletmd/silverbullet/lib/resolve";
 import { BasenameIndex } from "@silverbulletmd/silverbullet/lib/resolve_path";
@@ -27,7 +27,7 @@ import { updateBacklinks } from "./refactor.ts";
  * collisions surface as `ambiguous-link` objects instead.
  */
 export async function requalifyCollisions(pageName: string): Promise<void> {
-  const basename = fileName(`${pageName}.md`);
+  const basename = fileName(pathFromPageName(pageName));
   const lookups = await space.lookupPaths([basename]);
   const candidates = lookups[basename]?.candidates ?? [];
   if (candidates.length < 2) {
@@ -47,7 +47,11 @@ export async function requalifyCollisions(pageName: string): Promise<void> {
   index.rebuild(candidates);
 
   for (const other of others) {
-    const written = writtenLinkText(`${other}.md` as Path, writeFormat, index);
+    const written = writtenLinkText(
+      pathFromPageName(other),
+      writeFormat,
+      index,
+    );
     await updateBacklinks(other, other, written, true);
   }
 }

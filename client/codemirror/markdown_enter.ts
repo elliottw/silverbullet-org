@@ -4,6 +4,7 @@
 // 2. Never insert extra blank lines for non-tight list continuation
 
 import { markdownLanguage } from "@codemirror/lang-markdown";
+import { orgLanguage } from "../org_parser/parser.ts";
 import { indentUnit, syntaxTree } from "@codemirror/language";
 import type { EditorState, Text } from "@codemirror/state";
 import {
@@ -194,11 +195,12 @@ export const customEnterCommand: StateCommand = ({ state, dispatch }) => {
   // deno-lint-ignore no-explicit-any
   let dont: any = null;
   const changes = state.changeByRange((range) => {
-    if (
-      !range.empty ||
-      (!markdownLanguage.isActiveAt(state, range.from, -1) &&
-        !markdownLanguage.isActiveAt(state, range.from, 1))
-    ) {
+    // Org emits the same ListItem/ListMark/OrderedList/Blockquote node names,
+    // so everything below this gate works on Org pages unchanged.
+    const inListLanguage = (side: -1 | 1) =>
+      markdownLanguage.isActiveAt(state, range.from, side) ||
+      orgLanguage.isActiveAt(state, range.from, side);
+    if (!range.empty || (!inListLanguage(-1) && !inListLanguage(1))) {
       return (dont = { range });
     }
     const pos = range.from,

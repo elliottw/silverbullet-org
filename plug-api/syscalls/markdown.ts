@@ -11,6 +11,16 @@ export function parseMarkdown(text: string): Promise<ParseTree> {
 }
 
 /**
+ * Parses page text into a ParseTree using the parser that matches the page's
+ * file extension (Markdown for `.md`, Org for `.org`).
+ * @param path the path of the page, e.g. `Notes.org`
+ * @param text the page text to parse
+ */
+export function parsePage(path: string, text: string): Promise<ParseTree> {
+  return syscall("markdown.parsePage", path, text);
+}
+
+/**
  * Renders a ParseTree to markdown.
  * @param tree the parse tree
  * @returns the rendered markdown of a passed parse tree

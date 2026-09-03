@@ -8,12 +8,15 @@ import type {
 } from "@silverbulletmd/silverbullet/type/index";
 import type { SpacePrimitives } from "./spaces/space_primitives.ts";
 import {
+  getNameFromPath,
   getOffsetFromLineColumn,
   getPathExtension,
+  isPagePath,
   type Path,
+  pathFromPageName,
   type Ref,
 } from "@silverbulletmd/silverbullet/lib/ref";
-import { parseMarkdown } from "./markdown_parser/parser.ts";
+import { parsePage } from "./page_parser.ts";
 import {
   addParentPointers,
   findNodeMatching,
@@ -63,12 +66,12 @@ export class Space {
 
   async deletePage(name: string): Promise<void> {
     await this.getPageMeta(name); // Check if page exists, if not throws Error
-    await this.spacePrimitives.deleteFile(`${name}.md`);
+    await this.spacePrimitives.deleteFile(pathFromPageName(name));
   }
 
   async getPageMeta(name: string): Promise<PageMeta> {
     return fileMetaToPageMeta(
-      await this.spacePrimitives.getFileMeta(`${name}.md`),
+      await this.spacePrimitives.getFileMeta(pathFromPageName(name)),
     );
   }
 
@@ -78,7 +81,9 @@ export class Space {
   }
 
   async readPage(name: string): Promise<{ text: string; meta: PageMeta }> {
-    const pageData = await this.spacePrimitives.readFile(`${name}.md`);
+    const pageData = await this.spacePrimitives.readFile(
+      pathFromPageName(name),
+    );
     return {
       text: new TextDecoder().decode(pageData.data),
       meta: fileMetaToPageMeta(pageData.meta),
@@ -113,15 +118,15 @@ export class Space {
       const [from, to] = result.range;
       return { offset: from, text: pageText.slice(from, to) };
     }
-    if (!ref.path.endsWith(".md")) {
+    if (!isPagePath(ref.path)) {
       throw new Error("Not supported");
     }
-    const name = ref.path.slice(0, -3);
+    const name = getNameFromPath(ref.path);
     const pageText = (await this.readPage(name)).text;
     if (!ref.details) {
       return { offset: 0, text: pageText };
     }
-    const tree = parseMarkdown(pageText);
+    const tree = parsePage(ref.path, pageText);
     addParentPointers(tree);
     if (ref.details.type === "linecolumn") {
       ref.details = {
@@ -191,7 +196,7 @@ export class Space {
       this.saving = true;
       const pageMeta = fileMetaToPageMeta(
         await this.spacePrimitives.writeFile(
-          `${name}.md`,
+          pathFromPageName(name),
           new TextEncoder().encode(text),
         ),
       );
@@ -203,7 +208,7 @@ export class Space {
 
   // We're listing all pages that don't start with a _
   isListedPage(fileMeta: FileMeta): boolean {
-    return fileMeta.name.endsWith(".md") && !fileMeta.name.startsWith("_");
+    return isPagePath(fileMeta.name as Path) && !fileMeta.name.startsWith("_");
   }
 
   // Checks if this a document to be listed meaning:
@@ -307,7 +312,7 @@ export class Space {
 }
 
 export function fileMetaToPageMeta(fileMeta: FileMeta): PageMeta {
-  const name = fileMeta.name.substring(0, fileMeta.name.length - 3);
+  const name = getNameFromPath(fileMeta.name as Path);
   try {
     return {
       ...fileMeta,

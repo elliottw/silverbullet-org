@@ -107,13 +107,21 @@ export function createCommands({
 
   async function runCreate() {
     if (!view || !canCreate) return;
-    await engine.create(view.name, trimmedPhrase);
+    // Read these before standing down: `close` retires the view.
+    const viewName = view.name;
+    const phrase = trimmedPhrase;
+    // The panel gets out of the way *first*, unlike `selectRow`. Creating is
+    // the one handler that may need this slot itself -- Denote's asks for a
+    // title and keywords -- and it cannot have it while this panel is still
+    // holding it. A create always dismisses the panel anyway, so nothing else
+    // changes.
     if (closesOnSelect) {
       await close();
     } else {
       setPhrase("");
       setSelectedIndex(0);
     }
+    await engine.create(viewName, phrase);
   }
 
   /**

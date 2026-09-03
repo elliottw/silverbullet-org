@@ -4,9 +4,12 @@ import {
   decodePageURI,
   encodePageURI,
   encodeRef,
+  getNameFromPath,
+  isPagePath,
   isValidName,
   isValidPath,
   parseToRef,
+  pathFromPageName,
 } from "./ref.ts";
 
 test("parseToRef() default cases", () => {
@@ -195,4 +198,29 @@ test("encodeLinkText() round-trips caret links with details and no meta", () => 
   ]) {
     expect(encodeLinkText(parseToRef(name)!)).toEqual(name);
   }
+});
+
+test("Org files are pages whose name keeps its extension", () => {
+  expect(isPagePath("Notes.md")).toBe(true);
+  expect(isPagePath("Notes.org")).toBe(true);
+  expect(isPagePath("Notes.ORG")).toBe(true);
+  expect(isPagePath("photo.png")).toBe(false);
+
+  // Only `.md` is name-bearing, so `Notes.md` and `Notes.org` never collide.
+  expect(getNameFromPath("Notes.md")).toEqual("Notes");
+  expect(getNameFromPath("Notes.org")).toEqual("Notes.org");
+
+  expect(pathFromPageName("Notes")).toEqual("Notes.md");
+  expect(pathFromPageName("Notes.org")).toEqual("Notes.org");
+  // A dot in a page name is not an extension we know, so it still gets `.md`.
+  expect(pathFromPageName("Recipes.old")).toEqual("Recipes.old.md");
+});
+
+test("A ref to an Org page round-trips through parse and encode", () => {
+  const ref = parseToRef("Notes.org")!;
+  expect(ref.path).toEqual("Notes.org");
+  expect(encodeRef(ref)).toEqual("Notes.org");
+  expect(encodeRef(parseToRef("Notes.org#Planning")!)).toEqual(
+    "Notes.org#Planning",
+  );
 });

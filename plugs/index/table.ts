@@ -69,6 +69,13 @@ export function indexTables(
   ).forEach((table) => {
     const rows = collectNodesOfType(table, "TableRow");
     const header = collectNodesOfType(table, "TableHeader")[0];
+    // A Markdown table always has a header, because its delimiter row is what
+    // makes it a table at all. An Org table does not: `|---|` is optional, and
+    // without it every row is data. There are no labels to key rows by then,
+    // so there is nothing to index.
+    if (!header) {
+      return;
+    }
     normalizeTableRow(header);
     const headerHasLeadingDelim =
       header.children?.[0]?.type === "TableDelimiter";

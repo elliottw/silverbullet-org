@@ -1,0 +1,27 @@
+#+title:      Waivers of Filing Fees
+#+date:       [2024-01-26 Fri 08:23]
+#+filetags:   :costs:waivers:
+#+identifier: 20240126T082320
+
+* RCW 36.18.022 Filing fees may be waived—When.
+The court may waive the filing fees provided for under RCW 36.18.016(2)(b) and 36.18.020(2) (a) and *(b)* upon affidavit by a party that the party is unable to pay the fee due to financial hardship.
+[[denote:20240125T164237][1  Court Costs Relating to Evictions]]
+
+- RCW 36.18.020(b)
+  - (a) ... the party
+    - filing the first or initial document
+    - in any civil action ...
+    - and any party
+    - filing a *counterclaim*, cross-claim, or third-party claim
+    - in any such civil action,
+    - shall pay, at the time the document is filed, a fee of $200
+
+  - (b) Any party ...
+    - filing the first or initial document on an appeal from a court of limited jurisdiction
+    - or any party on any civil appeal,
+    - shall pay, when the document is filed, a fee of *$200*.
+
+* GR 34 WAIVER OF COURT AND CLERK’S FEES AND CHARGES IN CIVIL MATTERS ON THE BASIS OF INDIGENCY
+- (a) Any individual, on the basis of indigent status as defined herein, may seek a waiver of filing fees or surcharges the payment of which is a condition precedent to a litigant’s ability to secure access to judicial relief from a judicial officer in the applicable trial court.
+  - (1) The application for such a waiver may be made ex parte in writing or orally, accompanied by a mandatory pattern form created by the Administrative Office of the Courts (AOC) whereby the applicant attests to their financial status or, in the case of an individual represented by a qualified legal services provider (QLSP) or an attorney working in conjunction with a QLSP, a declaration of counsel stating that the individual was screened and found eligible by the QLSP.
+  - (2) The court shall accept an application submitted in person, by mail, and, where authorized by local court rule not inconsistent with GR 30, electronic filing. The process for presentation of the application shall conform to local court rules and clerk processes not inconsistent with the rules of this court for presenting ex parte orders to the court directly or via the clerk. All applications shall be presented to a judicial officer for consideration in a timely manner and in conformity with the local court’s established procedures. There shall be no locally imposed fee for making an application. The applicant or applicant’s attorney filing by mail, shall provide the court with a self-addressed stamped envelope for timely return of a conformed copy of the order.

@@ -1,9 +1,6 @@
 import type { Action, AppViewState } from "./types/ui.ts";
 import type { PageMeta } from "../plug-api/types/index.ts";
-import {
-  isMarkdownPath,
-  parseToRef,
-} from "@silverbulletmd/silverbullet/lib/ref";
+import { isPagePath, parseToRef } from "@silverbulletmd/silverbullet/lib/ref";
 import { isMobileDevice } from "./lib/mobile.ts";
 
 export default function reducer(
@@ -54,7 +51,7 @@ export default function reducer(
           ? { ...action.meta, lastOpened: Date.now() }
           : pageMeta,
       );
-      if (!state.current || !isMarkdownPath(state.current.path)) {
+      if (!state.current || !isPagePath(state.current.path)) {
         return state;
       }
       return {

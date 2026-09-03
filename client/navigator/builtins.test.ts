@@ -520,9 +520,16 @@ test("navigator:key Space peeks: navigates without closing the panel", async () 
   expect(result).toBeUndefined();
 });
 
-test("navigator:create navigates to the phrase", async () => {
+test("navigator:create routes the phrase through open-or-create", async () => {
+  // Not a bare `editor.navigate`: navigating to a phrase creates `<phrase>.md`,
+  // which in a Denote library is a file with no identifier, outside the naming
+  // scheme. `denoteOpenOrCreate` navigates itself when that is the right answer.
   await builtinHandle("std.spaceTree", "create", { phrase: "New Page" });
-  expect(editor.navigate).toHaveBeenCalledWith("New Page");
+  expect(system.invokeFunction).toHaveBeenCalledWith(
+    "index.denoteOpenOrCreate",
+    "New Page",
+  );
+  expect(editor.navigate).not.toHaveBeenCalled();
 });
 
 test("std.pageHistory lists revisions newest-first with an uncommitted pseudo-entry", async () => {

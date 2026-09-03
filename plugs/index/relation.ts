@@ -1,7 +1,7 @@
 import type { Path } from "@silverbulletmd/silverbullet/lib/ref";
 import {
   getNameFromPath,
-  isMarkdownPath,
+  isPagePath,
   parseToRef,
 } from "@silverbulletmd/silverbullet/lib/ref";
 import {
@@ -185,7 +185,7 @@ function emitWikiLinksInRange(
       }
       continue;
     }
-    const isPage = isMarkdownPath(ref.path);
+    const isPage = isPagePath(ref.path);
     emitTextualEdge(ctx, {
       ...edge,
       to: isPage ? getNameFromPath(ref.path) : ref.path,
@@ -375,9 +375,9 @@ export async function indexRelations(
           }
           return true;
         }
-        const isPage = isMarkdownPath(ref.path);
+        const isPage = isPagePath(ref.path);
         emitTextualEdge(ctx, {
-          // `[[X.jpg]]` (or any non-markdown target) is a document edge,
+          // `[[X.jpg]]` (or any non-page target) is a document edge,
           // matching the legacy `link.type = "file"` classification.
           kind: "mention",
           from,
@@ -418,7 +418,7 @@ export async function indexRelations(
           resolveMarkdownLink(pageMeta.name, decodeURI(url)),
         );
         if (!ref) return true;
-        if (isMarkdownPath(ref.path)) {
+        if (isPagePath(ref.path)) {
           emitTextualEdge(ctx, {
             ...base,
             kind: "mention",
@@ -523,7 +523,7 @@ export async function indexRelations(
             }
             continue;
           }
-          const isPage = isMarkdownPath(ref.path);
+          const isPage = isPagePath(ref.path);
           emitTextualEdge(ctx, {
             ...base,
             to: isPage ? getNameFromPath(ref.path) : ref.path,

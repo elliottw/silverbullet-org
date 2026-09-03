@@ -4,6 +4,11 @@ import type { SpacePrimitives } from "./space_primitives.ts";
 import type { FileMeta } from "@silverbulletmd/silverbullet/type/index";
 import type { DataStore } from "../data/datastore.ts";
 import { sleep } from "@silverbulletmd/silverbullet/lib/async";
+import {
+  getNameFromPath,
+  isPagePath,
+  type Path,
+} from "@silverbulletmd/silverbullet/lib/ref";
 
 export type ChangedFile = {
   name: string;
@@ -162,9 +167,11 @@ export class EventedSpacePrimitives implements SpacePrimitives {
         this.deleteFromSnapshot(deletedFile);
         await this.dispatchEvent("file:deleted", deletedFile);
 
-        if (deletedFile.endsWith(".md")) {
-          const pageName = deletedFile.substring(0, deletedFile.length - 3);
-          await this.dispatchEvent("page:deleted", pageName);
+        if (isPagePath(deletedFile as Path)) {
+          await this.dispatchEvent(
+            "page:deleted",
+            getNameFromPath(deletedFile as Path),
+          );
         }
       }
 
@@ -237,9 +244,13 @@ export class EventedSpacePrimitives implements SpacePrimitives {
       if (this.operationCount === 1) {
         await this.triggerEventsAndCache(path, newMeta.lastModified, true);
       }
-      if (path.endsWith(".md")) {
-        const pageName = path.substring(0, path.length - 3);
-        await this.dispatchEvent("page:saved", pageName, newMeta, created);
+      if (isPagePath(path as Path)) {
+        await this.dispatchEvent(
+          "page:saved",
+          getNameFromPath(path as Path),
+          newMeta,
+          created,
+        );
       }
 
       return newMeta;
@@ -300,9 +311,8 @@ export class EventedSpacePrimitives implements SpacePrimitives {
 
     this.operationCount++;
     try {
-      if (path.endsWith(".md")) {
-        const pageName = path.substring(0, path.length - 3);
-        await this.dispatchEvent("page:deleted", pageName);
+      if (isPagePath(path as Path)) {
+        await this.dispatchEvent("page:deleted", getNameFromPath(path as Path));
       }
       await this.wrapped.deleteFile(path);
       this.deleteFromSnapshot(path);

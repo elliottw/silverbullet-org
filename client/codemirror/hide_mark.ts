@@ -23,6 +23,8 @@ const typesWithMarks = [
   "Strikethrough",
   "Superscript",
   "Subscript",
+  // Org-only; the rest are shared with Markdown.
+  "OrgUnderline",
 ];
 /**
  * The elements which are used as marks.

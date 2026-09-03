@@ -1,4 +1,5 @@
 import { jitter } from "@silverbulletmd/silverbullet/lib/async";
+import { isPagePath, type Path } from "@silverbulletmd/silverbullet/lib/ref";
 import { compile as gitIgnoreCompiler } from "gitignore-parser";
 import type { KvPrimitives } from "../data/kv_primitives.ts";
 import { EventEmitter } from "../plugos/event.ts";
@@ -278,8 +279,8 @@ export class SyncEngine extends EventEmitter<SyncEngineEvents> {
     if (!this.syncAccepts(path)) {
       return false;
     }
-    // Either sync all files, or only .md files if syncDocuments is false
-    return this.syncConfig.syncDocuments || path.endsWith(".md");
+    // Either sync all files, or only pages (.md/.org) if syncDocuments is false
+    return this.syncConfig.syncDocuments || isPagePath(path as Path);
   }
 
   async syncSpace(): Promise<number> {

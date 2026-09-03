@@ -406,6 +406,28 @@ $comment-border: 1px;
     }
   }
 
+  // Org's `_underline_`, which Markdown has no equivalent for.
+  .sb-org-underline {
+    text-decoration: underline;
+
+    &.sb-meta {
+      text-decoration: none;
+    }
+  }
+
+  // Org shows an image for a link with no description; give it room to breathe
+  // and keep it inside the text column.
+  .sb-org-inline-image {
+    display: inline-block;
+    max-width: 100%;
+
+    img,
+    video {
+      max-width: 100%;
+      border-radius: 4px;
+    }
+  }
+
   .sb-line-hr {
     margin-top: 1em;
     margin-bottom: -1em;
@@ -1145,6 +1167,13 @@ $comment-border: 1px;
   scrollbar-gutter: stable;
 }
 
-div:not(.cm-focused).cm-fat-cursor {
-  outline: none !important;
+// Vim's block cursor is a filled block while the editor has focus and a hollow
+// outline once it loses it — that outline is how a vim user still sees where
+// they are with a modal or panel open. This used to be `outline: none`, which
+// (as a compound selector, matching the cursor element rather than an
+// unfocused editor) removed it unconditionally and left the cursor drawn
+// entirely in transparent: present in the DOM, invisible on screen.
+.cm-editor:not(.cm-focused) .cm-fat-cursor {
+  outline: 1px solid var(--editor-caret-color) !important;
+  opacity: 0.5;
 }

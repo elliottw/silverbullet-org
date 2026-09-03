@@ -198,5 +198,6 @@ export const spaceTreeView: BuiltinView<TreeObj> = {
   onMove: moveByRename,
   source: spaceTreeSource,
   onSelect: (obj) => editor.navigate(obj.ref ?? obj.name),
-  onCreate: (name) => editor.navigate(name),
+  // See the page picker's `onCreate`.
+  onCreate: (name) => system.invokeFunction("index.denoteOpenOrCreate", name),
 };

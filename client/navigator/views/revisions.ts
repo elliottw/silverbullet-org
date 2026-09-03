@@ -1,4 +1,5 @@
 import { relativeTime } from "@silverbulletmd/silverbullet/lib/dates";
+import { isPagePath, type Path } from "@silverbulletmd/silverbullet/lib/ref";
 import type { FileStatus } from "@silverbulletmd/silverbullet/type/revisions";
 import {
   editor,
@@ -148,7 +149,7 @@ async function fetchPageHistoryPage(
 
 async function pageHistoryRows(): Promise<RevisionRow[]> {
   const path = await editor.getCurrentPath();
-  if (!path.endsWith(".md")) {
+  if (!isPagePath(path as Path)) {
     pageAcc = undefined;
     return [];
   }
@@ -487,7 +488,7 @@ function previewLogFile(
   obj: LogRow,
   focus: boolean,
 ): Promise<false | undefined> {
-  if (!obj.file?.endsWith(".md")) return Promise.resolve(false);
+  if (!obj.file || !isPagePath(obj.file as Path)) return Promise.resolve(false);
   if (obj.rev === UNCOMMITTED) {
     return showUncommittedPreview(obj.file, focus);
   }
@@ -549,7 +550,8 @@ export const spaceLogView: BuiltinView<LogRow> = {
       icon: "rotate-ccw",
       label: "Restore",
       requireMode: "rw",
-      when: (obj) => !!obj.file?.endsWith(".md") && obj.rev !== UNCOMMITTED,
+      when: (obj) =>
+        !!obj.file && isPagePath(obj.file as Path) && obj.rev !== UNCOMMITTED,
       run: (obj) => restoreRevision({ ...obj, page: obj.file! }),
     },
   ],

@@ -219,10 +219,39 @@ view.define {
 widgets = widgets or {}
 
 local mentionTemplate = template.new [==[
-**[[${_.page}@${_.start}]]**:
+**[[${_.page}@${_.start}|${_.label}]]**:
 ${_.snippet}
 
 ]==]
+
+-- What to call a page here: its display name where it has one, else its own
+-- name. A Denote library's file names are slugs of the title with the
+-- identifier and keywords attached -- `20231221T085005==0--issues-of-law__law_meta.org`
+-- -- so the raw name tells a reader far less than the title does.
+local function mentionLabel(name)
+  local page = index.getObjectByRef(name, "page", name)
+  if page and page.displayName and page.displayName != "" then
+    return page.displayName
+  end
+  return name
+end
+
+-- Org link markup does not survive being rendered as Markdown: Markdown reads
+-- the `[[target]` of `[[target][description]]` as a wiki link of its own and
+-- shows the wreckage. A snippet is context rather than something to follow, so
+-- a link is reduced to the text Org itself displays for it.
+local function plainOrgSnippet(text)
+  text = string.gsub(text, "%[%[[^%]]*%]%[([^%]]*)%]%]", "%1")
+  text = string.gsub(text, "%[%[([^%]]*)%]%]", "%1")
+  return text
+end
+
+local function mentionSnippet(page, snippet)
+  if string.endsWith(page, ".org") then
+    return plainOrgSnippet(snippet)
+  end
+  return snippet
+end
 
 function widgets.linkedMentionsMarkdown(pageName)
   pageName = pageName or editor.getCurrentPage()
@@ -234,7 +263,8 @@ function widgets.linkedMentionsMarkdown(pageName)
     order by r.pageLastModified desc, r.range[1]
     select mentionTemplate({
       page = r.page,
-      snippet = r.snippet,
+      label = mentionLabel(r.page),
+      snippet = mentionSnippet(r.page, r.snippet),
       start = r.range[1],
     })
   ]]

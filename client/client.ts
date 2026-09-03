@@ -7,13 +7,13 @@ import { syntaxTree } from "@codemirror/language";
 import type { Compartment, EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import type { SyntaxNode } from "@lezer/common";
-import { jitter, sleep } from "@silverbulletmd/silverbullet/lib/async";
+import { jitter, safeRun, sleep } from "@silverbulletmd/silverbullet/lib/async";
 import { deriveDbName } from "@silverbulletmd/silverbullet/lib/crypto";
 import {
   encodePageURI,
   encodeRef,
   getNameFromPath,
-  isMarkdownPath,
+  isPagePath,
   type Path,
   parseToRef,
   type Ref,
@@ -34,9 +34,12 @@ import type { StyleObject } from "../plugs/index/space_style.ts";
 import type { ResolveAnchorResult } from "../plugs/index/types.ts";
 import { version as publicVersion } from "../version.json";
 import { ClientSystem } from "./client_system.ts";
-import { withCompletionInfo } from "./codemirror/completion_info.ts";
 import {
-  buildMarkdownLanguageExtension,
+  type DocumentedCompletion,
+  withCompletionInfo,
+} from "./codemirror/completion_info.ts";
+import {
+  buildPageLanguageExtension,
   createEditorState,
 } from "./codemirror/editor_state.ts";
 import { originLabel } from "./codemirror/external_presence.ts";
@@ -481,7 +484,7 @@ export class Client {
           entry && Date.now() - entry.time < REALTIME_ORIGIN_TTL_MS
             ? entry.origin
             : undefined;
-        if (isMarkdownPath(path)) {
+        if (isPagePath(path)) {
           this.contentManager
             .reloadPageContent(originLabel(origin))
             .catch(console.error);
@@ -889,7 +892,7 @@ export class Client {
     if (this.markdownLanguageCompartment) {
       this.editorView.dispatch({
         effects: this.markdownLanguageCompartment.reconfigure(
-          buildMarkdownLanguageExtension(this),
+          buildPageLanguageExtension(this, this.currentPath()),
         ),
       });
     }
@@ -988,7 +991,35 @@ export class Client {
     }
     return {
       ...currentResult,
-      options: currentResult.options.map(withCompletionInfo),
+      options: currentResult.options.map((option) =>
+        withCompletionInfo(this.withInvokeApply(option)),
+      ),
+    };
+  }
+
+  /**
+   * Builds the `apply` for a completion carrying `invoke` -- one the plug
+   * answers itself rather than by inserting text it already knows.
+   *
+   * A function cannot cross the plug boundary, so the plug sends the name of
+   * one and this side calls it, exactly as the slash-command hook does. What
+   * was typed is cleared first, leaving the cursor where the plug should write.
+   */
+  private withInvokeApply(option: DocumentedCompletion): DocumentedCompletion {
+    const invoke = option.invoke;
+    if (!invoke) {
+      return option;
+    }
+    const { invoke: _dropped, ...rest } = option;
+    return {
+      ...rest,
+      apply: (view: EditorView, _completion: any, from: number, to: number) => {
+        view.dispatch({ changes: { from, to, insert: "" } });
+        safeRun(async () => {
+          await this.clientSystem.system.invokeFunction(invoke, [option]);
+          this.focus();
+        });
+      },
     };
   }
 
@@ -1326,7 +1357,7 @@ export class Client {
     this.pageNavigator.subscribe(async (locationState) => {
       console.log(`Now navigating to ${encodeRef(locationState)}`);
 
-      if (isMarkdownPath(locationState.path)) {
+      if (isPagePath(locationState.path)) {
         await this.contentManager.loadPage(locationState);
       } else {
         await this.contentManager.loadDocumentEditor(locationState);

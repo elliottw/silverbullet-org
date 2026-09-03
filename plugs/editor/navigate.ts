@@ -1,7 +1,9 @@
 import {
   getNameFromPath,
+  getPathExtension,
   type Path,
   parseToRef,
+  pathFromPageName,
 } from "@silverbulletmd/silverbullet/lib/ref";
 import {
   lookupIndex,
@@ -12,6 +14,8 @@ import {
   isLocalURL,
   resolveMarkdownLink,
 } from "@silverbulletmd/silverbullet/lib/resolve";
+import { parseDenoteName } from "@silverbulletmd/silverbullet/lib/denote";
+import { hasLinkScheme } from "@silverbulletmd/silverbullet/lib/link_syntax";
 import { extractHashtag } from "@silverbulletmd/silverbullet/lib/tags";
 import {
   addParentPointers,
@@ -42,6 +46,8 @@ async function actionClickOrActionEnter(
   const navigationNodeFinder = (t: ParseTree) =>
     [
       "WikiLink",
+      "DenoteLink",
+      "OrgLink",
       "Link",
       "Image",
       "Autolink",
@@ -147,6 +153,76 @@ async function actionClickOrActionEnter(
         return editor.openUrl(url);
       }
     }
+    case "DenoteLink": {
+      // A Denote link names an identifier, not a path: every note's file name
+      // begins with its own identifier, so the page list resolves it.
+      const target = renderToText(
+        mdTree.children!.find((n) => n.type === "DenoteLinkTarget")!,
+      );
+      const match = /^denote:([^:\s]+)(?:::(.*))?$/.exec(target);
+      if (!match) {
+        break;
+      }
+      const [, identifier, heading] = match;
+      const page = (await space.listPages()).find(
+        (p) => parseDenoteName(p.name)?.identifier === identifier,
+      );
+      if (!page) {
+        await editor.flashNotification(
+          `No note with identifier ${identifier}`,
+          "error",
+        );
+        break;
+      }
+      const ref = parseToRef(page.name)!;
+      if (heading) {
+        ref.details = { type: "header", header: heading };
+      }
+      await editor.navigate(ref, false, inNewWindow);
+      break;
+    }
+    case "OrgLink": {
+      const target = renderToText(
+        mdTree.children!.find((n) => n.type === "OrgLinkTarget")!,
+      );
+      if (hasLinkScheme(target)) {
+        // `file:` addresses something in the space; anything else is external.
+        const filePath = target.startsWith("file:") ? target.slice(5) : null;
+        if (filePath) {
+          const fileRef = parseToRef(filePath);
+          if (fileRef) {
+            await editor.navigate(fileRef, false, inNewWindow);
+          }
+        } else if (!isLocalURL(target)) {
+          await editor.openUrl(target);
+        }
+        break;
+      }
+      const pageRef = parseToRef(target);
+      if (!pageRef) {
+        await editor.flashNotification(
+          `Couldn't navigate to ${target}`,
+          "error",
+        );
+        break;
+      }
+      // A bare target names a page, and `parseToRef` reads a name with no
+      // extension as Markdown. Followed from an Org note that is wrong twice
+      // over: it misses an `.org` page of that name, and where there is no
+      // page at all it creates a Markdown one in an Org space. An existing
+      // Markdown page is still reached exactly as written.
+      let ref = pageRef;
+      if (getPathExtension(pageRef.path) === "md") {
+        const paths = new Set(
+          (await space.listPages()).map((page) => pathFromPageName(page.name)),
+        );
+        if (!paths.has(pageRef.path)) {
+          ref = parseToRef(`${target}.org`) ?? pageRef;
+        }
+      }
+      await editor.navigate(ref, false, inNewWindow);
+      break;
+    }
     case "Hashtag": {
       const hashtag = extractHashtag(mdTree.children![0].text!);
       const tagPage = await config.get(["tags", hashtag, "tagPage"], null);
@@ -200,7 +276,10 @@ async function actionClickOrActionEnter(
 }
 
 export async function linkNavigate() {
-  const mdTree = await markdown.parseMarkdown(await editor.getText());
+  const mdTree = await markdown.parsePage(
+    await editor.getCurrentPath(),
+    await editor.getText(),
+  );
   const newNode = nodeAtPos(mdTree, await editor.getCursor());
   addParentPointers(mdTree);
   await actionClickOrActionEnter(newNode);
@@ -211,7 +290,10 @@ export async function clickNavigate(event: ClickEvent) {
   if (event.altKey) {
     return;
   }
-  const mdTree = await markdown.parseMarkdown(await editor.getText());
+  const mdTree = await markdown.parsePage(
+    await editor.getCurrentPath(),
+    await editor.getText(),
+  );
   addParentPointers(mdTree);
   const newNode = nodeAtPos(mdTree, event.pos);
   await actionClickOrActionEnter(newNode, event.ctrlKey || event.metaKey);
@@ -242,7 +324,10 @@ export async function navigateToPage(_cmdDef: any, pageName: string) {
 }
 
 export async function createPageUnderCursorCommand() {
-  const mdTree = await markdown.parseMarkdown(await editor.getText());
+  const mdTree = await markdown.parsePage(
+    await editor.getCurrentPath(),
+    await editor.getText(),
+  );
   addParentPointers(mdTree);
   let newNode = nodeAtPos(mdTree, await editor.getCursor());
   if (!newNode) {

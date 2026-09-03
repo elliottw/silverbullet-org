@@ -1,7 +1,7 @@
 import {
   encodePageURI,
   getNameFromPath,
-  isMarkdownPath,
+  isPagePath,
   parseToRef,
   type Path,
   type Ref,
@@ -141,7 +141,7 @@ export class PathPageNavigator {
     if (locationState.path === "") {
       locationState.path = this.indexRef.path;
     }
-    if (isMarkdownPath(locationState.path)) {
+    if (isPagePath(locationState.path)) {
       Object.assign(locationState, this.captureEditorPosition());
     }
     return locationState;
@@ -175,7 +175,7 @@ export class PathPageNavigator {
       // same on line above; a synthetic popstate redundantly re-saves the
       // same value, which is cheap and harmless.)
       const leavingPath = this.client.currentPath();
-      if (leavingPath && isMarkdownPath(leavingPath)) {
+      if (leavingPath && isPagePath(leavingPath)) {
         this.openLocations.set(leavingPath, {
           path: leavingPath,
           ...this.captureEditorPosition(),

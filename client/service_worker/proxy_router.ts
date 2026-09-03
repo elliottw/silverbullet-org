@@ -4,7 +4,12 @@ import {
   offlineError,
   pingInterval,
 } from "@silverbulletmd/silverbullet/constants";
-import { decodePageURI } from "@silverbulletmd/silverbullet/lib/ref";
+import {
+  decodePageURI,
+  getNameFromPath,
+  isPagePath,
+  type Path,
+} from "@silverbulletmd/silverbullet/lib/ref";
 import { fileMetaToHeaders, headersToFileMeta } from "../lib/util.ts";
 import { EventEmitter } from "../plugos/event.ts";
 import { fsEndpoint } from "../spaces/constants.ts";
@@ -98,10 +103,10 @@ export function belongsToSiblingSpace(
 /**
  * Whether a request may be answered from the local base store while the very
  * first sync cycle is still running (i.e. before `fullSyncConfirmed`).
- * Non-markdown GETs qualify even without the X-Sync-Mode header: plug worker
+ * Non-page GETs qualify even without the X-Sync-Mode header: plug worker
  * scripts and attachments are fetched by the browser itself, and proxying an
  * already-synced .plug.js on a slow link can push the worker boot past its
- * 5s creation timeout. Bare .md navigations keep proxy-first behavior.
+ * 5s creation timeout. Bare page navigations keep proxy-first behavior.
  */
 export function isInitialSyncLocalReadCandidate(
   method: string,
@@ -112,8 +117,33 @@ export function isInitialSyncLocalReadCandidate(
     method === "GET" &&
     pathname.startsWith(`${fsEndpoint}/`) &&
     pathname.length > fsEndpoint.length + 1 &&
-    (headers.has("X-Sync-Mode") || !pathname.endsWith(".md"))
+    (headers.has("X-Sync-Mode") ||
+      !isPagePath(pathname.slice(fsEndpoint.length + 1) as Path))
   );
+}
+
+/**
+ * The page URL a bare `/.fs/<page>` navigation should be bounced to, or null
+ * when the request is not one. This handles ending up with a raw file URL in
+ * the address bar (typically after an auth-proxy redirect).
+ *
+ * The empty path is excluded deliberately: `/.fs` itself is the file-listing
+ * endpoint, and `isPagePath("")` is true — an empty path means "the page
+ * you're on" — so without that guard the file list would be redirected away
+ * and sync would break.
+ */
+export function pageNavigationRedirect(
+  pathname: string,
+  headers: Headers,
+): string | null {
+  if (!pathname.startsWith(`${fsEndpoint}/`) || headers.has("X-Sync-Mode")) {
+    return null;
+  }
+  const fsPath = pathname.slice(fsEndpoint.length + 1);
+  if (!fsPath || !isPagePath(fsPath as Path)) {
+    return null;
+  }
+  return `/${getNameFromPath(fsPath as Path)}`;
 }
 
 export type ProxyRouterEvents = {
@@ -345,15 +375,12 @@ export class ProxyRouter extends EventEmitter<ProxyRouterEvents> {
 
           // We are now in a state we're configured and either a full sync cycle has completed (since boot) OR we're offline
 
-          if (
-            pathname.startsWith(fsEndpoint) &&
-            pathname.endsWith(".md") &&
-            !request.headers.has("X-Sync-Mode")
-          ) {
-            // This handles the case of ending up with a .md URL in the browser address bar (likely due to a auth proxy redirect)
-            return Response.redirect(
-              `${pathname.slice(fsEndpoint.length, -3)}`,
-            );
+          const redirectTarget = pageNavigationRedirect(
+            pathname,
+            request.headers,
+          );
+          if (redirectTarget) {
+            return Response.redirect(redirectTarget);
           } else if (pathname.startsWith(fsEndpoint)) {
             // Handle /.fs file system APIs
             return this.handleRequest(pathname, request);

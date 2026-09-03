@@ -9,6 +9,7 @@ import {
   type OutlineResult,
 } from "./outline_ops.ts";
 import { parseMarkdown } from "../../client/markdown_parser/parser.ts";
+import { parseOrg } from "../../client/org_parser/parser.ts";
 
 const CURSOR = "|^|";
 
@@ -1013,5 +1014,84 @@ describe("Table row context detection", () => {
 | 1 | 2 |
 `),
     ).toEqual(null);
+  });
+});
+
+// Org pages parse to the same ListItem/ATXHeadingN nodes as Markdown, so the
+// outline operations work on them unchanged — except for the heading marker,
+// which is `*` rather than `#` and is read from the document.
+function applyOrgOp(
+  op: (
+    text: string,
+    tree: ReturnType<typeof parseOrg>,
+    cursor: number,
+  ) => OutlineResult,
+  input: string,
+): string {
+  const pos = input.indexOf(CURSOR);
+  const clean = input.slice(0, pos) + input.slice(pos + CURSOR.length);
+  const result = op(clean, parseOrg(clean), pos);
+  if (result === null || result === "blocked") {
+    return input;
+  }
+  return (
+    result.text.slice(0, result.cursor) +
+    CURSOR +
+    result.text.slice(result.cursor)
+  );
+}
+
+describe("Org outline operations", () => {
+  test("moves a list item down past its sibling", () => {
+    expect(applyOrgOp(moveDown, "- one|^|\n- two\n")).toEqual(
+      "- two\n- one|^|\n",
+    );
+  });
+
+  test("moves a list item up", () => {
+    expect(applyOrgOp(moveUp, "- one\n- two|^|\n")).toEqual(
+      "- two|^|\n- one\n",
+    );
+  });
+
+  test("carries a nested sublist along with its item", () => {
+    expect(applyOrgOp(moveDown, "- one|^|\n  - nested\n- two\n")).toEqual(
+      "- two\n- one|^|\n  - nested\n",
+    );
+  });
+
+  test("indents and outdents a list item", () => {
+    expect(applyOrgOp(indent, "- one\n- two|^|\n")).toEqual(
+      "- one\n  - two|^|\n",
+    );
+    expect(applyOrgOp(outdent, "- one\n  - two|^|\n")).toEqual(
+      "- one\n- two|^|\n",
+    );
+  });
+
+  test("demoting a headline adds a star, not a hash", () => {
+    expect(applyOrgOp(indent, "* One|^|\nbody\n")).toEqual("** One|^|\nbody\n");
+  });
+
+  test("promoting a headline removes a star", () => {
+    expect(applyOrgOp(outdent, "** One|^|\nbody\n")).toEqual(
+      "* One|^|\nbody\n",
+    );
+  });
+
+  test("demoting a headline carries its subtree", () => {
+    expect(applyOrgOp(indent, "* One|^|\n** Child\n* Two\n")).toEqual(
+      "** One|^|\n*** Child\n* Two\n",
+    );
+  });
+
+  test("moves a headline and its body past the next headline", () => {
+    expect(
+      applyOrgOp(moveDown, "* One|^|\nbody one\n* Two\nbody two\n"),
+    ).toEqual("* Two\nbody two\n* One|^|\nbody one\n");
+  });
+
+  test("a headline cannot be promoted past level one", () => {
+    expect(applyOrgOp(outdent, "* One|^|\n")).toEqual("* One|^|\n");
   });
 });

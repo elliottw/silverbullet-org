@@ -12,6 +12,7 @@ import type {
 import { isValidAnchorName } from "./anchor.ts";
 import { containsConflictMarkers } from "./conflict.ts";
 import { indexData } from "./data.ts";
+import { denoteFrontMatter, indexDenote } from "./denote.ts";
 import { extractFrontMatter, type FrontMatter } from "./frontmatter.ts";
 import { indexHeaders } from "./header.ts";
 import { indexItems } from "./item.ts";
@@ -172,6 +173,7 @@ function stampRecipients(
 export const allIndexers: IndexerFunction[] = [
   pageIndexPage,
   indexData,
+  indexDenote,
   indexItems,
   indexHeaders,
   indexParagraphs,
@@ -214,6 +216,29 @@ export async function indexMarkdown(
   );
 }
 
+/**
+ * A Denote note keeps its title and keywords in its *file name*, not in YAML
+ * front matter. Folding them into the extracted front matter here is what lets
+ * every downstream indexer — page, tags, items — treat a Denote note like any
+ * other page without knowing Denote exists.
+ */
+function withDenoteFrontMatter(
+  name: string,
+  text: string,
+  frontmatter: FrontMatter,
+): FrontMatter {
+  const denote = denoteFrontMatter(name, text);
+  if (!denote) {
+    return frontmatter;
+  }
+  return {
+    ...denote,
+    ...frontmatter,
+    // Explicit front matter in the file wins, but a Denote note rarely has any.
+    tags: [...new Set([...(denote.tags ?? []), ...(frontmatter.tags ?? [])])],
+  };
+}
+
 export async function indexPage({ name, tree, meta, text }: IndexTreeEvent) {
   if (containsConflictMarkers(text)) {
     // Frontmatter and attributes in a conflicted file may be half-merged
@@ -234,7 +259,11 @@ export async function indexPage({ name, tree, meta, text }: IndexTreeEvent) {
     return;
   }
 
-  const frontmatter = extractFrontMatter(tree);
+  const frontmatter = withDenoteFrontMatter(
+    name,
+    text,
+    extractFrontMatter(tree),
+  );
   const indexResults = await Promise.all(
     allIndexers.map((indexer) => indexer(meta, frontmatter, tree, text)),
   );

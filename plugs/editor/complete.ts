@@ -2,6 +2,11 @@ import {
   linkWriteFormat,
   writtenLinkText,
 } from "@silverbulletmd/silverbullet/lib/link_write";
+import { parseDenoteName } from "@silverbulletmd/silverbullet/lib/denote";
+import {
+  innerPageLink,
+  linkSyntaxFor,
+} from "@silverbulletmd/silverbullet/lib/link_syntax";
 import { type Path, parseToRef } from "@silverbulletmd/silverbullet/lib/ref";
 import { folderName } from "@silverbulletmd/silverbullet/lib/resolve";
 import { collisionIndex } from "@silverbulletmd/silverbullet/lib/resolve_path";
@@ -34,17 +39,22 @@ export async function pageComplete(completeEvent: CompleteEvent) {
       `not string.startsWith(_.name, "_") and not string.endsWith(_.name, ".plug.js")`,
     ),
   };
+  // `_.identifier == nil` keeps Denote notes out of the meta bucket: their
+  // keywords are the author's vocabulary, so a note keyworded `:meta:` is
+  // content, not infrastructure, and must stay completable without a `^`.
   const isMetaPageQuery = {
     objectVariable: "_",
-    where: await lua.parseExpression(`table.find(_.tags, function(tag)
+    where:
+      await lua.parseExpression(`_.identifier == nil and table.find(_.tags, function(tag)
            return tag == "meta" or string.startsWith(tag, "meta/")
           end)`),
   };
   const isntMetaPageQuery = {
     objectVariable: "_",
-    where: await lua.parseExpression(`not table.find(_.tags, function(tag)
+    where:
+      await lua.parseExpression(`not (_.identifier == nil and table.find(_.tags, function(tag)
            return tag == "meta" or string.startsWith(tag, "meta/")
-          end)`),
+          end))`),
   };
   // Try to match [[wikilink]]
   let isWikilink = true;
@@ -118,6 +128,9 @@ export async function pageComplete(completeEvent: CompleteEvent) {
     linkWriteFormat(),
     space.collidingBasenames(),
   ]);
+  // An Org page takes Org links; writing a Markdown wiki link into one leaves
+  // something neither format can follow.
+  const syntax = linkSyntaxFor(completeEvent.pageName);
   const linkIndex = collisionIndex(colliding);
   // `allPages` holds documents too, whose names already carry an extension —
   // `parseToRef` appends `.md` only where it belongs.
@@ -135,94 +148,146 @@ export async function pageComplete(completeEvent: CompleteEvent) {
     return path ? writtenLinkText(path, writeFormat, linkIndex) : name;
   };
 
+  // `denote-link-or-create`, at the point where the link is being written.
+  //
+  // A Denote link addresses a note by identifier, so a link to a note that
+  // does not exist cannot be written at all -- the identifier only exists once
+  // the file does. That rules out the aspiring-page arrangement Markdown
+  // relies on, where `[[Some Note]]` is written first and the page created by
+  // following it: here that would leave a bare name that resolves to nothing
+  // and, if followed, a note outside the naming scheme entirely.
+  //
+  // So the note is created up front, by the plug function this hands off to.
+  // The row sorts last, below every real match, and is offered whatever the
+  // prefix matches: Denote's own prompt lets you create at any point, and a
+  // library may hold two notes with the same title.
+  const denoteCreate: any[] =
+    isWikilink &&
+    prefix.trim() !== "" &&
+    !prefix.startsWith("^") &&
+    parseDenoteName(completeEvent.pageName)?.identifier
+      ? [
+          {
+            // The label deliberately is not the bare prefix: an option whose
+            // label is exactly what was typed scores as a perfect match and
+            // takes the selection away from every real note. Denote's own
+            // prompt creates on *no* match, so this has to sort last.
+            label: `\uFF0B Create "${prefix.trim()}" as a Denote note`,
+            boost: -99,
+            invoke: "index.denoteCreateFromLink",
+            title: prefix.trim(),
+            type: "page",
+          },
+        ]
+      : [];
+
   return {
     from: completeEvent.pos - prefix.length,
-    options: allPages.flatMap((pageMeta) => {
-      const completions: any[] = [];
-      const applyName = written(
-        pageMeta.name,
-        (pageMeta as PageMeta)._isAspiring === true,
-      );
-      const namePrefix = (pageMeta as PageMeta).pageDecoration?.prefix || "";
-      const cssClass = ((pageMeta as PageMeta).pageDecoration?.cssClasses || [])
-        .join(" ")
-        .replaceAll(/[^a-zA-Z0-9-_ ]/g, "");
+    options: [
+      ...denoteCreate,
+      ...allPages.flatMap((pageMeta) => {
+        const completions: any[] = [];
+        const applyName = written(
+          pageMeta.name,
+          (pageMeta as PageMeta)._isAspiring === true,
+        );
+        const namePrefix = (pageMeta as PageMeta).pageDecoration?.prefix || "";
+        const cssClass = (
+          (pageMeta as PageMeta).pageDecoration?.cssClasses || []
+        )
+          .join(" ")
+          .replaceAll(/[^a-zA-Z0-9-_ ]/g, "");
 
-      if (isWikilink) {
-        // A [[wikilink]]
-        const linkAlias = pageMeta.linkName || pageMeta.displayName;
-        const recencyBoost = pageMeta._isAspiring
-          ? -Infinity
-          : recencyToBoost(pageMeta.lastModified);
-        if (linkAlias) {
-          const decoratedName = namePrefix + linkAlias;
-          completions.push({
-            label: linkAlias,
-            displayLabel: decoratedName,
-            boost: recencyBoost,
-            apply:
-              pageMeta.tag === "template"
-                ? applyName
-                : `${applyName}|${linkAlias}`,
-            detail: pageMeta.linkName
-              ? `linkName for: ${pageMeta.name}`
-              : `displayName for: ${pageMeta.name}`,
-            type: "page",
-            cssClass,
-          });
-        }
-        if (Array.isArray(pageMeta.aliases)) {
-          for (const alias of pageMeta.aliases) {
-            const decoratedName = namePrefix + alias;
+        if (isWikilink) {
+          // A [[wikilink]]
+          const linkAlias = pageMeta.linkName || pageMeta.displayName;
+          const recencyBoost = pageMeta._isAspiring
+            ? -Infinity
+            : recencyToBoost(pageMeta.lastModified);
+          if (linkAlias) {
+            const decoratedName = namePrefix + linkAlias;
             completions.push({
-              label: `${alias}`,
+              label: linkAlias,
               displayLabel: decoratedName,
               boost: recencyBoost,
               apply:
                 pageMeta.tag === "template"
-                  ? applyName
-                  : `${applyName}|${alias}`,
-              detail: `alias to: ${pageMeta.name}`,
+                  ? innerPageLink(syntax, applyName)
+                  : innerPageLink(syntax, applyName, linkAlias),
+              detail: pageMeta.linkName
+                ? `linkName for: ${pageMeta.name}`
+                : `displayName for: ${pageMeta.name}`,
               type: "page",
               cssClass,
             });
           }
-        }
-        const decoratedName = namePrefix + pageMeta.name;
-        completions.push({
-          label: pageMeta.name,
-          displayLabel: decoratedName,
-          boost: recencyBoost,
-          apply: applyName === pageMeta.name ? undefined : applyName,
-          detail: pageMeta.tags?.includes("non-existing")
-            ? "Linked but not created"
-            : undefined,
-          type: "page",
-          cssClass,
-        });
-      } else {
-        // A markdown link []()
-        let labelText = pageMeta.name;
-        let boost = recencyToBoost(pageMeta.lastModified);
-        // Relative path if in the same folder or a subfolder
-        if (folder.length > 0 && labelText.startsWith(folder)) {
-          labelText = labelText.slice(folder.length + 1);
-          boost += 5;
+          if (Array.isArray(pageMeta.aliases)) {
+            for (const alias of pageMeta.aliases) {
+              const decoratedName = namePrefix + alias;
+              completions.push({
+                label: `${alias}`,
+                displayLabel: decoratedName,
+                boost: recencyBoost,
+                apply:
+                  pageMeta.tag === "template"
+                    ? innerPageLink(syntax, applyName)
+                    : innerPageLink(syntax, applyName, alias),
+                detail: `alias to: ${pageMeta.name}`,
+                type: "page",
+                cssClass,
+              });
+            }
+          }
+          const decoratedName = namePrefix + pageMeta.name;
+          completions.push({
+            label: pageMeta.name,
+            displayLabel: decoratedName,
+            boost: recencyBoost,
+            // Org always rewrites: the link target is the note's identifier, not
+            // its name, and Denote's own `denote-link` fills in the title as the
+            // description. Markdown leaves the typed text alone when it already
+            // matches.
+            apply:
+              syntax === "org"
+                ? innerPageLink(
+                    syntax,
+                    applyName,
+                    (pageMeta as PageMeta & { title?: string }).title ??
+                      applyName,
+                  )
+                : applyName === pageMeta.name
+                  ? undefined
+                  : applyName,
+            detail: pageMeta.tags?.includes("non-existing")
+              ? "Linked but not created"
+              : undefined,
+            type: "page",
+            cssClass,
+          });
         } else {
-          // Absolute path otherwise
-          labelText = `/${labelText}`;
+          // A markdown link []()
+          let labelText = pageMeta.name;
+          let boost = recencyToBoost(pageMeta.lastModified);
+          // Relative path if in the same folder or a subfolder
+          if (folder.length > 0 && labelText.startsWith(folder)) {
+            labelText = labelText.slice(folder.length + 1);
+            boost += 5;
+          } else {
+            // Absolute path otherwise
+            labelText = `/${labelText}`;
+          }
+          completions.push({
+            label: labelText,
+            displayLabel: namePrefix + labelText,
+            boost: boost,
+            apply: labelText.includes(" ") ? `<${labelText}>` : labelText,
+            type: "page",
+            cssClass,
+          });
         }
-        completions.push({
-          label: labelText,
-          displayLabel: namePrefix + labelText,
-          boost: boost,
-          apply: labelText.includes(" ") ? `<${labelText}>` : labelText,
-          type: "page",
-          cssClass,
-        });
-      }
-      return completions;
-    }),
+        return completions;
+      }),
+    ],
   };
 }
 

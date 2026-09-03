@@ -20,6 +20,11 @@ import {
   refCellTransformer,
 } from "../../markdown_renderer/result_render.ts";
 import * as TagConstants from "../../../plugs/index/constants.ts";
+import { parseOrg } from "../../org_parser/parser.ts";
+import {
+  getPathExtension,
+  type Path,
+} from "@silverbulletmd/silverbullet/lib/ref";
 
 export function markdownSyscalls(client: Client): SysCallMapping {
   return {
@@ -33,6 +38,32 @@ export function markdownSyscalls(client: Client): SysCallMapping {
       ],
       returns: [{ type: "table", description: "Parsed Markdown tree." }],
       examples: [{ code: 'local tree = markdown.parseMarkdown("# Title")' }],
+    },
+    // Pages are not all Markdown: `.org` files are parsed by the Org parser
+    // into the same node vocabulary, so indexers and renderers downstream
+    // don't need to know which one produced the tree.
+    "markdown.parsePage": {
+      callback: (_ctx, path: string, text: string): ParseTree => {
+        return getPathExtension(path as Path) === "org"
+          ? parseOrg(text)
+          : parse(markdownLanguageWithUserExtensions(client), text);
+      },
+      description:
+        "Parses page text into a syntax tree, using the parser matching the page's file extension.",
+      parameters: [
+        {
+          name: "path",
+          type: "string",
+          description: "Path of the page, e.g. `Notes.md` or `Notes.org`.",
+        },
+        { name: "text", type: "string", description: "Page source." },
+      ],
+      returns: [{ type: "table", description: "Parsed page tree." }],
+      examples: [
+        {
+          code: 'local tree = markdown.parsePage("Notes.org", "* Headline")',
+        },
+      ],
     },
     "markdown.renderParseTree": {
       callback: (_ctx, tree: ParseTree): string => {

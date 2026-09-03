@@ -21,7 +21,8 @@ import {
 import {
   getNameFromPath,
   getOffsetFromLineColumn,
-  isMarkdownPath,
+  isPagePath,
+  pathFromPageName,
   parseToRef,
 } from "@silverbulletmd/silverbullet/lib/ref";
 import type { ClickEvent } from "@silverbulletmd/silverbullet/type/client";
@@ -175,13 +176,13 @@ export async function updateTaskState(
       console.log("Could not resolve task anchor, skipping", path, result);
       return;
     }
-    ref.path = `${result.page}.md`;
+    ref.path = pathFromPageName(result.page);
     ref.details = { type: "position", pos: result.range[0] };
   }
 
   if (
     !ref.details ||
-    !isMarkdownPath(ref.path) ||
+    !isPagePath(ref.path) ||
     (ref.details.type !== "linecolumn" && ref.details.type !== "position")
   ) {
     console.log("No position found in page ref, skipping", ref);

@@ -1,0 +1,155 @@
+#+title:      Issues of Law
+#+date:       [2023-12-21 Thu 08:50]
+#+filetags:   :law:meta:
+#+identifier: 20231221T085005
+
+* 1. Court Costs and Waivers
+#+BEGIN: denote-links :regexp "_costs" :sort-by-component nil :reverse-sort nil :id-only nil
+- [[denote:20240125T164237][1a  Court Costs Relating to Evictions]]
+- [[denote:20240126T082320][1b  Waivers of Filing Fees]]
+#+END:
+
+* 2. Court Rules
+#+BEGIN: denote-links :regexp "_cr" :sort-by-component nil :reverse-sort nil :id-only nil
+- [[denote:20240126T104605][2a  Presentation of Findings, Conclusions, and Judgment]]
+#+END:
+
+* 3. Evidence Law
+- [[denote:20231221T083539][Judge may consider facts and common sense but not evidence outside the record]]
+- [[denote:20231221T084112][Judicial notice of court records]]
+
+* 4. Accounts
+- [[denote:20240229T151211][4a  Types of Accounts]]
+- [[denote:20240229T163150][4b  Action for an Accounting]]
+- [[denote:20240229T163651][4a1  Elements of an Action for an Accounting]]
+- [[denote:20240229T172753][4c  Action on Account]]
+- [[denote:20251219T160809][4c1  Am Jur Pleading and Practice -- Accounts and Accounting]]
+
+* 5. Declaratory Judgments Act Ch. 7.24 RCW
+- [[denote:20240229T165900][5a  Declaratory Judgments Act Overview]]
+
+* 6. Jurisdiction
+#+BEGIN: denote-links :regexp "==6" :excluded-dirs-regexp nil :sort-by-component nil :reverse-sort nil :id-only nil :include-date nil
+- [[denote:20240203T131348][6a  Subject Matter Jurisdiction in Unlawful Detainer Action]]
+- [[denote:20240929T094000][6b  Jurisdiction]]
+- [[denote:20240929T094159][6b1  Subject Matter Jurisdiction]]
+- [[denote:20240929T094725][6b1a  Subject Matter Jurisdiction -- Statutory Restrictions]]
+#+END:
+
+* 7. Process and Service of Process
+#+BEGIN: denote-links :regexp "==7" :sort-by-component nil :reverse-sort nil :id-only nil
+- [[denote:20240327T161917][7a  Process and Service of Process]]
+- [[denote:20240531T171321][7b  Affidavits of Service -- Valdity]]
+- [[denote:20240827T122219][7c  Substitute Service of Process on Resident]]
+#+END:
+
+* 8. Statutory Interpetation
+#+BEGIN: denote-links :regexp "==8.*_law" :sort-by-component nil :reverse-sort nil :id-only nil
+- [[denote:20240804T183451][8a=30k3173  Interpretation of a Statute]]
+- [[denote:20240804T185123][8a1=361k1071  Interpretation of a Statute and Court's Duty]]
+- [[denote:20240804T185754][8a2=361k1111  Interpretation of a Statute and Plain or Unambiguous Language]]
+- [[denote:20240804T194100][8a3=233k1782  Statutory Interpretation in Eviction Cases is Strictly Construed]]
+#+END:
+
+* 9. Tenant Rights under RLTA
+#+BEGIN: denote-links :regexp "=9a.*law" :sort-by-component nil :reverse-sort nil :id-only nil
+- [[denote:20240804T190642][9a  Tenant Rights Under the RLTA]]
+- [[denote:20250228T090637][9a1  Lead Remediation in Apartments]]
+#+END:
+
+* 10. Pleading
+#+BEGIN: denote-links :regexp "=10.*_law.*_pleading" :excluded-dirs-regexp nil :sort-by-component nil :reverse-sort nil :id-only nil
+- [[denote:20240806T084333][10a=302iii  Pleading-Responses or Responsive Pleadings in General]]
+#+END:
+
+* 11. Appearance
+#+BEGIN: denote-links :regexp "_noa" :excluded-dirs-regexp nil :sort-by-component nil :reverse-sort nil :id-only nil :include-date nil
+- [[denote:20240921T090605][11  Appearance]]
+- [[denote:20240220T105436][11a  Notice of Appearance -- What Constitutes]]
+#+END:
+
+* 12. Right to Possession
+#+BEGIN: denote-links :regexp "=12[a-z]" :excluded-dirs-regexp nil :sort-by-component nil :reverse-sort nil :id-only nil :include-date nil
+- [[denote:20240921T093112][12a  Right to Regain Possession After Eviction]]
+#+END:
+
+* 13. Housing Choice Vouchers
+#+BEGIN: denote-links :regexp "_hcv" :excluded-dirs-regexp nil :sort-by-component nil :reverse-sort nil :id-only nil :include-date nil
+- [[denote:20240930T134046][Housing Choice Voucher Issues]]
+#+END:
+
+* 14. LL-T at Common Law
+#+BEGIN: denote-links :regexp "_commonlaw.*_llt" :excluded-dirs-regexp nil :sort-by-component nil :reverse-sort nil :id-only nil :include-date nil
+- [[denote:20241004T150305][sc  Tenant Invitees and Licensees]]
+#+END:
+
+* 15. Contract Law
+#+BEGIN: denote-links :regexp "_contract" :excluded-dirs-regexp nil :sort-by-component signature :include-date nil
+- [[denote:20241007T102808][15u  96-unconscionability-procedural-and-substantive]]
+- [[denote:20240418T105908][k  Contracts]]
+- [[denote:20251207T094719][k0  Contract Law -- Outline]]
+- [[denote:20240418T105430][k1  Context Rule]]
+- [[denote:20241202T172657][k2  Statute of Frauds]]
+- [[denote:20241211T101844][k3  Interpretation of Contracts]]
+#+END:
+
+** 15u Unconscionability
+* 16. Derogation of the Common Law
+* 17. Waste and Nuisance and Unlawful Activity
+[[denote:20241106T081908][17  Waste and Nuisance and Unlawful Activityy]]
+* 18. Memoranda of Law
+[[denote:20241106T083140][18  Memoranda of Law]]
+* 19. Typography
+[[denote:20241106T111903][19a  Typography for Lawyers]]
+[[denote:20241106T112408][19b  Practical Typography]]
+* 20. Publishing
+** Pollen
+[[denote:20241106T112216][20a  Pollen]]
+* 21. Moorages
+#+BEGIN: denote-links :regexp "=21" :excluded-dirs-regexp nil :sort-by-component nil :reverse-sort nil :id-only nil :include-date nil
+- [[denote:20241209T171343][21  Moorages]]
+#+END:
+* 22. Settlement Agreements
+* 23. HUD
+#+BEGIN: denote-links :regexp "==23" :not-regexp nil :excluded-dirs-regexp nil :sort-by-component nil :reverse-sort nil :id-only nil :include-date nil
+- [[denote:20231128T140104][23a  HUD Handbook asa Mandatory Not Just Guidance]]
+- [[denote:20250124T085249][23b  New HUD rule on 30 day notice to pay or vacate]]
+- [[denote:20250207T124327][23c  Rules a PHA Must Follow to Terminate Section 8 Benefits]]
+- [[denote:20250321T091038][23d1  Housing Discrimination under the FHA]]
+- [[denote:20250321T091629][23d0  Fair Housing Laws]]
+- [[denote:20250321T091843][23d2  Housing Resource Center]]
+- [[denote:20250515T091250][23e  VAWA]]
+#+END:
+
+* 24. Damages in RLTA Cases
+#+BEGIN: denote-links :regexp "=24" :not-regexp nil :excluded-dirs-regexp nil :sort-by-component nil :reverse-sort nil :id-only nil :include-date nil
+- [[denote:20250127T093034][24a  Potential Damages in RLTA Retaliation Case RCW 59.18.240-.250]]
+#+END:
+
+* 25. Civil Procedure
+#+BEGIN: denote-links :regexp "==25" :not-regexp nil :excluded-dirs-regexp nil :sort-by-component nil :reverse-sort nil :id-only nil :include-date nil
+- [[denote:20240717T154813][25a  Satisfaction of Judgment]]
+#+END:
+
+* 26. Limitations
+[[denote:20250219T134154][26a1  Limitations]]
+
+* 27. McElhaney's Trial Notebook
+[[denote:20250219T144639][27  McElhaney's Trial Notebook 2nd Edition 1987]]=
+* 28. Motions in Limine
+[[denote:20250227T163235][Motions in Limine]]
+* 29. Discrimination in Housing
+#+BEGIN: denote-links :regexp "_discrimination" :not-regexp nil :excluded-dirs-regexp nil :sort-by-component nil :reverse-sort nil :id-only nil :include-date nil
+- [[denote:20250321T091038][23d1  Housing Discrimination under the FHA]]
+#+END:
+* 30. Voucher
+#+BEGIN: denote-links :regexp "==30.--" :not-regexp nil :excluded-dirs-regexp nil :sort-by-component nil :reverse-sort nil :id-only nil :include-date nil
+- [[denote:20250321T141705][30a  Income Certification Recertification]]
+#+END:
+* 31. Setoff -- Offset
+#+BEGIN: denote-links :regexp "==31[[:alpha:]].*--" :not-regexp nil :excluded-dirs-regexp nil :sort-by-component nil :reverse-sort nil :id-only nil :include-date nil
+- [[denote:20251204T164954][31a  Setoff-Offset Basic Definition]]
+- [[denote:20251205T091615][31b=352k  Set-Off and Counterclaim -- Westlaw Key Number Cites]]
+- [[denote:20251205T094711][31c=rcw=4  RCW 4.56.060 Judgment in case of setoff—When equal or less than plaintiff's debt]]
+- [[denote:20251205T131520][31a1  Set-Off -- Codification and Court Rule CR 13(j)]]
+#+END:

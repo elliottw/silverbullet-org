@@ -3,7 +3,14 @@ import {
   linkWriteFormat,
   writtenLinkText,
 } from "@silverbulletmd/silverbullet/lib/link_write";
-import { isValidPath, parseToRef } from "@silverbulletmd/silverbullet/lib/ref";
+import {
+  getNameFromPath,
+  isPagePath,
+  isValidPath,
+  type Path,
+  parseToRef,
+  pathFromPageName,
+} from "@silverbulletmd/silverbullet/lib/ref";
 import { folderName } from "@silverbulletmd/silverbullet/lib/resolve";
 import { BasenameIndex } from "@silverbulletmd/silverbullet/lib/resolve_path";
 import type { ParseTree } from "@silverbulletmd/silverbullet/lib/tree";
@@ -56,7 +63,9 @@ export async function renamePageCommand(cmdDef: any) {
     );
     return false;
   }
-  const pageList: [string, string][] = [[`${oldName}.md`, `${newName}.md`]];
+  const pageList: [string, string][] = [
+    [pathFromPageName(oldName), pathFromPageName(newName)],
+  ];
   await batchRenameFiles(pageList);
   return true;
 }
@@ -96,7 +105,9 @@ export async function renamePageLinkCommand() {
     );
     return false;
   }
-  const pageList: [string, string][] = [[`${oldName}.md`, `${newName}.md`]];
+  const pageList: [string, string][] = [
+    [pathFromPageName(oldName), pathFromPageName(newName)],
+  ];
   await batchRenameFiles(pageList);
 }
 
@@ -152,7 +163,7 @@ export async function batchRenameFiles(fileList: [string, string][]) {
     // existing `OldName.md`, which made every case-only rename impossible.
     const existingPaths = [
       ...(await space.listDocuments()).map((doc) => doc.name),
-      ...(await space.listPages()).map((page) => `${page.name}.md`),
+      ...(await space.listPages()).map((page) => pathFromPageName(page.name)),
     ];
 
     for (const [oldName, newName] of fileList) {
@@ -176,8 +187,11 @@ export async function batchRenameFiles(fileList: [string, string][]) {
     for (const [oldName, newName] of fileList) {
       console.log("Renaming", oldName, "to", newName);
       try {
-        if (newName.endsWith(".md") && oldName.endsWith(".md")) {
-          await renamePage(oldName.slice(0, -3), newName.slice(0, -3));
+        if (isPagePath(newName as Path) && isPagePath(oldName as Path)) {
+          await renamePage(
+            getNameFromPath(oldName as Path),
+            getNameFromPath(newName as Path),
+          );
         } else {
           await renameDocument(oldName, newName);
         }
@@ -203,8 +217,8 @@ export async function batchRenameFiles(fileList: [string, string][]) {
  * happily — but the file list reports real on-disk names.
  */
 async function existsWithExactCasing(path: string): Promise<boolean> {
-  if (path.endsWith(".md")) {
-    const name = path.slice(0, -3);
+  if (isPagePath(path as Path)) {
+    const name = getNameFromPath(path as Path);
     return (await space.listPages()).some((page) => page.name === name);
   }
   return (await space.listDocuments()).some((doc) => doc.name === path);
@@ -291,8 +305,8 @@ async function renamePage(oldName: string, newName: string) {
   // folder), leaving the file under its old name — where deleting that name
   // would destroy the only copy. Only check for case-only renames: the check
   // itself is a full uncached `GET /.fs` plus an event storm.
-  const oldPath = `${oldName}.md`;
-  const newPath = `${newName}.md`;
+  const oldPath = pathFromPageName(oldName);
+  const newPath = pathFromPageName(newName);
   const existsExact =
     oldPath.toLowerCase() === newPath.toLowerCase()
       ? await existsWithExactCasing(newPath)
@@ -387,7 +401,7 @@ export async function renamePrefixCommand(cmdDef: any) {
     .filter((file) => file.startsWith(oldPrefix));
   allAffectedFiles = allAffectedFiles.concat(
     allPages
-      .map((page) => `${page.name}.md`)
+      .map((page) => pathFromPageName(page.name))
       .filter((page) => page.startsWith(oldPrefix)),
   );
 

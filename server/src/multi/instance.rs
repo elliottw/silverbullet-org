@@ -266,10 +266,18 @@ pub fn seed_index(folder: &Path, index_page: &str, content: &str, space_ignore: 
         }
         Ok(disk) => disk,
     };
-    if disk.has_file_with_suffix(".md") {
+    // A space holding only Org notes is not an empty space: seeding a Markdown
+    // index into a Denote library would drop a stray file into it.
+    if disk.has_file_with_suffix(".md") || disk.has_file_with_suffix(".org") {
         return;
     }
-    let path = format!("{index_page}.md");
+    // An index page named with its extension (`home.org`) is taken as-is;
+    // a bare name gets the Markdown one, as before.
+    let path = if index_page.ends_with(".md") || index_page.ends_with(".org") {
+        index_page.to_string()
+    } else {
+        format!("{index_page}.md")
+    };
     if let Err(e) = disk.write_file(&path, content.as_bytes(), None) {
         tracing::warn!("could not seed index page {path}: {e}");
     }
@@ -1069,6 +1077,31 @@ mod tests {
         std::fs::write(dir.path().join("other.md"), "x").unwrap();
         seed_index(dir.path(), "home", "# Hello\n", "");
         assert!(!dir.path().join("home.md").exists());
+    }
+
+    #[test]
+    fn seed_index_leaves_an_org_only_space_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        // A Denote library holds no Markdown at all. It is still a space, and
+        // must not have an index seeded into it.
+        std::fs::write(
+            dir.path().join("20240322T131856--a-note__topic.org"),
+            "#+title: A note\n",
+        )
+        .unwrap();
+        seed_index(dir.path(), "index", "# Hello\n", "");
+        assert!(!dir.path().join("index.md").exists());
+    }
+
+    #[test]
+    fn seed_index_honours_an_index_page_that_names_its_extension() {
+        let dir = tempfile::tempdir().unwrap();
+        seed_index(dir.path(), "home.org", "#+title: Home\n", "");
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("home.org")).unwrap(),
+            "#+title: Home\n"
+        );
+        assert!(!dir.path().join("home.org.md").exists());
     }
 
     #[test]

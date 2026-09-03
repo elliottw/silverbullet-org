@@ -324,6 +324,7 @@ functions:
       key:
         - "Alt-ArrowUp"
         - "Mod-. k"
+        - "Alt-k"
       requireMode: rw
       requireEditor: page
       menu: { location: edit.outline, group: "1_move", order: 1, label: "Move Up" }
@@ -335,6 +336,7 @@ functions:
       key:
         - "Alt-ArrowDown"
         - "Mod-. j"
+        - "Alt-j"
       requireMode: rw
       requireEditor: page
       menu: { location: edit.outline, group: "1_move", order: 2, label: "Move Down" }
@@ -343,7 +345,9 @@ functions:
     path: ./outline.ts:indentItem
     command:
       name: "Outline: Move Right"
-      key: "Mod-. l"
+      key:
+        - "Mod-. l"
+        - "Alt-l"
       requireMode: rw
       requireEditor: page
       menu: { location: edit.outline, group: "1_move", order: 4, label: "Move Right (Indent)" }
@@ -352,7 +356,9 @@ functions:
     path: ./outline.ts:outdentItem
     command:
       name: "Outline: Move Left"
-      key: "Mod-. h"
+      key:
+        - "Mod-. h"
+        - "Alt-h"
       requireMode: rw
       requireEditor: page
       menu: { location: edit.outline, group: "1_move", order: 3, label: "Move Left (Outdent)" }

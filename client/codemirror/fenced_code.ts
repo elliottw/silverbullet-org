@@ -24,14 +24,23 @@ export function fencedCodePlugin(client: Client) {
             return;
           }
           const text = state.sliceDoc(from, to);
-          const [_, lang] = text.match(/^(?:```+|~~~+)(\S+)?/)!;
+          // Both parsers mark the language as `CodeInfo`, so read it from the
+          // tree rather than the fence: an Org `#+BEGIN_SRC lua` block is a
+          // FencedCode too, and matching it against a Markdown fence yields
+          // null — which used to throw out of the whole state field.
+          const infoNode = node.getChild("CodeInfo");
+          const info = infoNode
+            ? state.sliceDoc(infoNode.from, infoNode.to)
+            : (text.match(/^(?:```+|~~~+)(\S+)?/)?.[1] ?? "");
+          const lang = info.split(/\s+/)[0] || undefined;
           const renderMode = widgetRenderMode(client);
 
           const luaWidgetDef = lang
             ? client.clientSystem.luaCodeWidgets.get(lang)
             : undefined;
-          const codeWidgetCallback =
-            client.clientSystem.codeWidgetHook.codeWidgetCallbacks.get(lang);
+          const codeWidgetCallback = lang
+            ? client.clientSystem.codeWidgetHook.codeWidgetCallbacks.get(lang)
+            : undefined;
 
           // Lua-registered code widgets win precedence over plug ones.
           if (luaWidgetDef && renderMode !== "disabled") {

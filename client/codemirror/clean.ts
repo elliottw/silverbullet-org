@@ -8,6 +8,8 @@ import { cleanBlockPlugin } from "./block.ts";
 import { blockquotePlugin } from "./block_quote.ts";
 import { commentRegionPlugin } from "./comment_region.ts";
 import { customSyntaxPlugin } from "./custom_syntax_widget.ts";
+import { denoteLinkPlugin } from "./denote_link.ts";
+import { orgInlineImagePlugin } from "./org_image.ts";
 import { cleanEscapePlugin } from "./escapes.ts";
 import { fencedCodePlugin } from "./fenced_code.ts";
 import { footnotePlugin } from "./footnote.ts";
@@ -27,6 +29,8 @@ export function cleanModePlugins(client: Client) {
   const pluginsNeededEvenWhenRenderingSyntax = [
     luaDirectivePlugin(client),
     cleanWikiLinkPlugin(client),
+    denoteLinkPlugin(client),
+    orgInlineImagePlugin(client),
     hashtagPlugin(client),
     atMentionPlugin(),
     attributePlugin(),
