@@ -96,6 +96,26 @@ already has notes and you want the home page, copy it in yourself:
 cp bin/silverbullet/space_template/00000000T000000--home.org "$SB_FOLDER/"
 ```
 
+## Links
+
+An Org link reads as its **description** with the cursor away, the same as a
+Denote link does — the target is machinery, not prose:
+
+| Written | Shown |
+|---|---|
+| `[[denote:20240125T164237][Court Costs]]` | Court Costs |
+| `[[https://example.com][a site]]` | a site ↗ |
+| `[[https://example.com]]` | https://example.com ↗ |
+| `[[file:shot.png]]` | the image |
+| `[[file:shot.png][a screenshot]]` | the words |
+
+A link to somewhere outside the space carries an **↗**, because otherwise
+nothing distinguishes it from a link to another note. The arrow is drawn in
+CSS, so it never lands in a selection or in copied text.
+
+Putting the cursor on a link shows its source, as every live-preview
+decoration does. Clicking an external link opens it in a new tab.
+
 ## Configuration
 
 | Key | Default | Meaning |

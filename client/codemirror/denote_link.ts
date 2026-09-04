@@ -6,7 +6,12 @@ import { orgInlineImageTarget } from "./org_image.ts";
 import { encodePageURI } from "@silverbulletmd/silverbullet/lib/ref";
 import type { PageMeta } from "@silverbulletmd/silverbullet/type/index";
 import type { Client } from "../client.ts";
-import { decoratorStateField, isCursorInRange, LinkWidget } from "./util.ts";
+import {
+  decoratorStateField,
+  invisibleDecoration,
+  isCursorInRange,
+  LinkWidget,
+} from "./util.ts";
 
 /**
  * Resolves a Denote identifier to a page, using the client's page list.
@@ -52,9 +57,36 @@ export function denoteLinkPlugin(client: Client) {
           return;
         }
         const target = state.sliceDoc(targetNode.from, targetNode.to);
-        // A plain `[[https://…]]` is left alone; only links that address a
-        // note in this space are turned into navigation.
         if (!isDenote && hasLinkScheme(target)) {
+          // `file:` addresses something in this space, and a description-less
+          // one is an image; both belong to other plugins.
+          if (target.startsWith("file:")) {
+            return;
+          }
+          // An external link reads as its description, the way a Denote link
+          // reads as its title -- the URL is machinery, not prose. Marked
+          // rather than replaced so the text stays real document text and
+          // selection and copy behave normally, which is how Markdown links
+          // are drawn too. The `sb-org-external-link` class carries the
+          // indicator, in CSS so it never lands in copied text.
+          const descriptionNode = node.getChild("OrgLinkDescription");
+          const textFrom = descriptionNode
+            ? descriptionNode.from
+            : targetNode.from;
+          const textTo = descriptionNode ? descriptionNode.to : targetNode.to;
+          if (textTo === textFrom) {
+            // Nothing to show; leave the source visible rather than vanish.
+            return;
+          }
+          widgets.push(invisibleDecoration.range(from, textFrom));
+          widgets.push(
+            Decoration.mark({
+              tagName: "a",
+              class: "sb-link sb-org-external-link",
+              attributes: { href: target, title: `Click to visit ${target}` },
+            }).range(textFrom, textTo),
+          );
+          widgets.push(invisibleDecoration.range(textTo, to));
           return;
         }
         // An image link with no description belongs to the inline-image

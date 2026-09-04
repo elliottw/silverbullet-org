@@ -415,6 +415,23 @@ $comment-border: 1px;
     }
   }
 
+  // An Org link to somewhere outside the space reads as its description, so
+  // without a mark there is nothing to tell it from a link to another note.
+  // The arrow is a `::after` rather than text: it must not end up in a
+  // selection or in what gets copied, and it must not be editable.
+  .sb-org-external-link::after {
+    content: "\2197"; // north-east arrow
+    display: inline-block;
+    font-size: 0.8em;
+    line-height: 1;
+    vertical-align: super;
+    margin-left: 0.15em;
+    opacity: 0.6;
+    // A caret should never sit "inside" the arrow.
+    pointer-events: none;
+    user-select: none;
+  }
+
   // Org shows an image for a link with no description; give it room to breathe
   // and keep it inside the text column.
   .sb-org-inline-image {

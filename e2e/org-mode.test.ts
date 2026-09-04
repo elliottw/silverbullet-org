@@ -210,3 +210,91 @@ test.describe("Org Mode and vim", () => {
     expect(await editor.innerText()).toEqual(before);
   });
 });
+
+test.describe("External links", () => {
+  test.use({
+    spaceFiles: {
+      "index.md": "# Index\n",
+      "Links.org": `#+title: Links
+
+An [[https://example.com/some/long/path][external site]] in a sentence.
+
+A bare [[https://example.com/naked]] link.
+`,
+    },
+  });
+
+  test("an external link reads as its description, with an indicator", async ({
+    sbPage,
+    sbServer,
+  }) => {
+    await gotoSilverBulletPage(sbPage, sbServer, "Links.org");
+    const editor = sbPage.locator("#sb-editor .cm-content");
+    await expect(editor).toContainText("in a sentence");
+
+    // The URL is machinery: with the cursor away, only the description shows.
+    const link = sbPage.locator("a.sb-org-external-link").first();
+    await expect(link).toHaveText("external site");
+    await expect(link).toHaveAttribute(
+      "href",
+      "https://example.com/some/long/path",
+    );
+    await expect(editor).not.toContainText("some/long/path");
+
+    // The indicator is CSS, so it is not part of the text -- it must not turn
+    // up in the link's textContent, or it would land in copied text.
+    const after = await link.evaluate(
+      (el) => globalThis.getComputedStyle(el, "::after").content,
+    );
+    expect(after).toContain("↗");
+  });
+
+  test("a description-less external link shows its URL", async ({
+    sbPage,
+    sbServer,
+  }) => {
+    await gotoSilverBulletPage(sbPage, sbServer, "Links.org");
+    const editor = sbPage.locator("#sb-editor .cm-content");
+    await expect(editor).toContainText("A bare");
+    const links = sbPage.locator("a.sb-org-external-link");
+    await expect(links.nth(1)).toHaveText("https://example.com/naked");
+  });
+
+  test("clicking one opens the URL in a new tab", async ({
+    sbPage,
+    sbServer,
+  }) => {
+    // The description is what you see, so the href has to still be live --
+    // it opens in a new tab, which is how SilverBullet opens externals.
+    await sbPage.route("https://example.com/**", (route) =>
+      route.fulfill({ status: 200, body: "ARRIVED" }),
+    );
+    await gotoSilverBulletPage(sbPage, sbServer, "Links.org");
+    await expect(sbPage.locator("#sb-editor .cm-content")).toContainText(
+      "in a sentence",
+    );
+    const [popup] = await Promise.all([
+      sbPage.context().waitForEvent("page", { timeout: 15_000 }),
+      sbPage.locator("a.sb-org-external-link").first().click(),
+    ]);
+    expect(popup.url()).toBe("https://example.com/some/long/path");
+    // And we did not leave the note.
+    expect(sbPage.url()).toContain("Links.org");
+  });
+
+  test("putting the cursor on it shows the source again", async ({
+    sbPage,
+    sbServer,
+  }) => {
+    await gotoSilverBulletPage(sbPage, sbServer, "Links.org");
+    const editor = sbPage.locator("#sb-editor .cm-content");
+    await expect(editor).toContainText("in a sentence");
+    await sbPage
+      .locator("a.sb-org-external-link")
+      .first()
+      .click({
+        modifiers: ["Alt"],
+      });
+    await expect(editor).toContainText("[[https://example.com/some/long/path]");
+  });
+});
