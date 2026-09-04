@@ -203,6 +203,35 @@ pub(crate) async fn run_single(
 mod tests {
     use super::*;
 
+    /// The shipped default is an Org page, so a fresh space opens on one
+    /// rather than on upstream's `index.md`.
+    #[test]
+    fn default_index_page_is_the_org_home() {
+        let page = silverbullet_server::DEFAULT_INDEX_PAGE;
+        assert!(page.ends_with(".org"), "{page} must be an Org page");
+        assert_eq!(page, "00000000T000000--home.org");
+        // The seeded content has to be the note that file name describes.
+        assert!(crate::DEFAULT_INDEX_ORG.contains("#+identifier: 00000000T000000"));
+        assert!(crate::DEFAULT_INDEX_ORG.starts_with("#+title:"));
+    }
+
+    /// Which template gets seeded follows the index page's extension, so
+    /// pointing this build at a Markdown space still behaves as upstream does.
+    #[test]
+    fn seed_template_follows_the_index_page_extension() {
+        let pick = |index_page: &str| {
+            if index_page.ends_with(".org") {
+                crate::DEFAULT_INDEX_ORG
+            } else {
+                crate::DEFAULT_INDEX_MD
+            }
+        };
+        assert_eq!(pick(silverbullet_server::DEFAULT_INDEX_PAGE), crate::DEFAULT_INDEX_ORG);
+        assert_eq!(pick("home.org"), crate::DEFAULT_INDEX_ORG);
+        assert_eq!(pick("index"), crate::DEFAULT_INDEX_MD);
+        assert_eq!(pick("index.md"), crate::DEFAULT_INDEX_MD);
+    }
+
     /// A `Config` fixture with defaults matching `Config::from_env` when no
     /// `SB_*` are set. Fields are overridden per-test.
     fn config_fixture() -> Config {

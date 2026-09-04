@@ -224,3 +224,14 @@ test("A ref to an Org page round-trips through parse and encode", () => {
     "Notes.org#Planning",
   );
 });
+
+test("the shipped Denote home page name resolves to itself", () => {
+  // The server hands this name to the client as `bootConfig.indexPage`, and
+  // every Home route parses it. An extension-bearing Denote name must survive
+  // that round trip -- `.md` must not be appended, and the `--` must not be
+  // read as anything but part of the name.
+  const home = "00000000T000000--home.org";
+  expect(isPagePath(home)).toBe(true);
+  expect(pathFromPageName(home)).toEqual(home);
+  expect(parseToRef(home)!.path).toEqual(home);
+});
