@@ -105,12 +105,14 @@ pub(crate) async fn run_single(
 
     // Seed an index page into a brand-new empty space. The space folder is the
     // server root (folder ".").
-    seed_index(
-        &root,
-        &space.index_page,
-        crate::DEFAULT_INDEX_MD,
-        &config.gitignore,
-    );
+    // An `.org` index page gets the Org home; anything else keeps the Markdown
+    // one, so a space explicitly configured for Markdown still seeds Markdown.
+    let seed = if space.index_page.ends_with(".org") {
+        crate::DEFAULT_INDEX_ORG
+    } else {
+        crate::DEFAULT_INDEX_MD
+    };
+    seed_index(&root, &space.index_page, seed, &config.gitignore);
 
     // `SB_USER` set => inherit the admin (env) credentials; absent => open.
     let auth = silverbullet_server::auth::AuthConfig::from_env().map_err(|e| e.0)?;

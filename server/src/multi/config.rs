@@ -65,7 +65,7 @@ fn default_true() -> bool {
     true
 }
 fn default_index_page() -> String {
-    "index".into()
+    crate::DEFAULT_INDEX_PAGE.into()
 }
 fn default_theme_color() -> String {
     "#e1e1e1".into()

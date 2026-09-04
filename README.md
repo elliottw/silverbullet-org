@@ -74,6 +74,28 @@ Two more are reached without the palette:
 Backlinks are the stock **Linked Mentions** panel (`Navigate: Linked
 Mentions`), which lists notes by title with the context line.
 
+## First launch
+
+A new space is seeded with an Org home page,
+`00000000T000000--home.org`, and that is also where **Home** goes — the house
+icon, `Cmd-Shift-h`, and anything else that navigates home.
+
+The all-zero identifier is deliberate: it marks the page as shipped rather than
+authored, and it sorts before every real note in a Denote library. Rename it,
+retitle it or delete it; nothing depends on it existing.
+
+Upstream seeds `index.md`, which in an Org-only library is a stray Markdown
+file you did not ask for. `SB_INDEX_PAGE` still overrides the name, and a space
+whose index page does not end in `.org` still gets the Markdown template — so
+pointing this build at a Markdown space behaves as upstream does.
+
+An existing space is never seeded. If you are attaching this to a library that
+already has notes and you want the home page, copy it in yourself:
+
+```sh
+cp bin/silverbullet/space_template/00000000T000000--home.org "$SB_FOLDER/"
+```
+
 ## Configuration
 
 | Key | Default | Meaning |
@@ -82,8 +104,8 @@ Mentions`), which lists notes by title with the context line.
 | `denote.renameOnSave` | `true` | Rename the file when its front matter changes |
 | `denote.updateDblocksOnSave` | `true` | Regenerate dynamic blocks on save |
 
-If you keep the library in Emacs, exclude its droppings — otherwise 1,000+
-`.org~` backups are indexed as attachments:
+If you keep the library in Emacs, exclude its droppings — otherwise a backup
+per note is indexed as an attachment:
 
 ```
 SB_SPACE_IGNORE='*~
@@ -93,6 +115,42 @@ SB_SPACE_IGNORE='*~
 
 The `\#` escape matters: gitignore reads a leading `#` as a comment, so an
 unescaped `#*#` is silently discarded.
+
+### Syncing a library with Syncthing
+
+Syncthing works well here — SilverBullet keeps **no database in the space**, so
+there is nothing to corrupt the way a live SQLite file would be. The index
+lives in each browser and is rebuilt from the files.
+
+Two things must not sync. Put them in `.stignore` on **every** device, since
+Syncthing ignore lists are per-device:
+
+```
+// Comments are "//" here -- unlike gitignore, "#" means nothing special.
+
+// The JWT signing secret. Syncing it copies a credential to every device,
+// and logs you out as it round-trips.
+.silverbullet.auth.json
+.silverbullet.session.json
+
+// Emacs droppings -- churn nothing reads.
+*~
+#*#
+.#*
+
+// Never sync a git dir two ways; it corrupts.
+.git
+```
+
+Leave `*.sync-conflict-*` **out** of that list: you want conflict copies to
+reach you. `SB_SPACE_IGNORE` already keeps them out of the page picker, which
+is the right place for that.
+
+For a first sync of an irreplaceable library, set the source device to **Send
+Only** until the other side is populated, so an empty folder can never
+propagate deletions back. And do not point Syncthing at a directory another
+sync engine also manages — iCloud Drive, in particular, can evict files to
+placeholders and rewrite them underneath Syncthing.
 
 ## Documentation
 

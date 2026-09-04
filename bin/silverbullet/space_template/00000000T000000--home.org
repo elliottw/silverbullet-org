@@ -1,0 +1,37 @@
+#+title:      Home
+#+date:       [0000-00-00 00:00]
+#+identifier: 00000000T000000
+
+Welcome. This space is a [[https://protesilaos.com/emacs/denote][Denote]]
+library: every note carries its own metadata in its file name, so it stays
+readable with or without this app, and Emacs can keep editing the same files.
+
+The all-zero identifier is deliberate. It marks this page as the one the app
+shipped rather than one you wrote, and it sorts before every real note. Rename
+it, retitle it, or delete it — nothing depends on it existing.
+
+* Getting around
+- *⌘K* opens the page picker. Notes are listed by title, with their keywords
+  beside them.
+- Typing a title that does not exist offers to create it as a Denote note,
+  which is =denote-open-or-create=.
+- *⌘/* runs a command. Everything Denote-related is under =Denote:=.
+- *TAB* on a headline cycles folding; *Shift-TAB* cycles the whole buffer.
+- *Alt-j/k* move an item down/up, *Alt-l/h* indent and outdent it.
+
+* Recently modified
+${query[[
+  from p = index.contentPages()
+  order by p.lastModified desc
+  limit 10
+  select templates.fullPageItem(p)
+]]}
+
+* Notes needing attention
+${some(query[[
+  from t = index.tasks()
+  where not t.done
+  order by t.pageLastModified desc
+  limit 10
+  select templates.taskItem(t)
+]]) or "_Nothing outstanding._"}

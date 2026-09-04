@@ -18,6 +18,13 @@ mod ssr;
 pub mod state;
 pub mod watcher;
 
+/// The page a space opens on, and the one seeded into an empty space.
+///
+/// This fork is Org-first, so the default is an Org note rather than
+/// `index.md`. The all-zero identifier marks it as shipped rather than
+/// authored, and sorts it before every real note in a Denote library.
+pub const DEFAULT_INDEX_PAGE: &str = "00000000T000000--home.org";
+
 pub use fs_guard::FsGuard;
 pub use router::{build_router, metrics_router};
 pub use state::{ServerState, ServerVersion};
@@ -39,7 +46,7 @@ mod test_support {
             boot_config: BootConfig {
                 space_folder_path: "/tmp".into(),
                 space_name: "Test".into(),
-                index_page: "index".into(),
+                index_page: DEFAULT_INDEX_PAGE.into(),
                 read_only: false,
                 log_push: false,
                 enable_client_encryption: false,

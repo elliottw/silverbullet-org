@@ -90,7 +90,8 @@ impl Config {
             space_folder,
             gitignore: env::var("SB_SPACE_IGNORE").unwrap_or_default(),
             read_only: env_nonempty("SB_READ_ONLY").is_some(),
-            index_page: env_nonempty("SB_INDEX_PAGE").unwrap_or_else(|| "index".to_string()),
+            index_page: env_nonempty("SB_INDEX_PAGE")
+                .unwrap_or_else(|| silverbullet_server::DEFAULT_INDEX_PAGE.to_string()),
             space_name: env_nonempty("SB_NAME").unwrap_or_else(|| "SilverBullet".to_string()),
             disable_service_worker: env_nonempty("SB_DISABLE_SERVICE_WORKER").is_some(),
             shell_disabled: silverbullet_server::shell::disabled_by_env(),

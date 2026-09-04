@@ -17,3 +17,9 @@ pub const VERSION: &str = env!("SB_VERSION");
 
 /// Content seeded into a brand-new empty space's index page
 pub const DEFAULT_INDEX_MD: &str = include_str!("../space_template/index.md");
+
+/// The Org home page seeded into an empty space. Paired with
+/// `silverbullet_server::DEFAULT_INDEX_PAGE`, which names the file it is
+/// written to.
+pub const DEFAULT_INDEX_ORG: &str =
+    include_str!("../space_template/00000000T000000--home.org");
