@@ -2,7 +2,7 @@ import { syntaxTree } from "@codemirror/language";
 import { Decoration, type DecorationSet } from "@codemirror/view";
 import { parseDenoteName } from "@silverbulletmd/silverbullet/lib/denote";
 import { hasLinkScheme } from "@silverbulletmd/silverbullet/lib/link_syntax";
-import { orgInlineImageTarget } from "./org_image.ts";
+import { orgInlineMedia } from "./org_image.ts";
 import { encodePageURI } from "@silverbulletmd/silverbullet/lib/ref";
 import type { PageMeta } from "@silverbulletmd/silverbullet/type/index";
 import type { Client } from "../client.ts";
@@ -89,9 +89,11 @@ export function denoteLinkPlugin(client: Client) {
           widgets.push(invisibleDecoration.range(textTo, to));
           return;
         }
-        // An image link with no description belongs to the inline-image
-        // plugin; two replacements over one range would collide.
-        if (!isDenote && orgInlineImageTarget(state, node) !== null) {
+        // An image belongs to the inline-image plugin; two replacements over
+        // one range would collide. Only an actual image, though: a bare
+        // `[[Some Note]]` is description-less too, and if this stepped aside
+        // for that, neither plugin would draw it.
+        if (!isDenote && orgInlineMedia(state, node, client) !== null) {
           return;
         }
         const match = isDenote ? denoteTargetRegex.exec(target) : null;
@@ -106,9 +108,14 @@ export function denoteLinkPlugin(client: Client) {
           : "";
 
         // A Denote link resolves by identifier; a bare Org link names a page.
+        // An Org page's name carries its extension, so `[[Bob]]` has to find
+        // `Bob.org` -- the same rule following the link uses. An existing
+        // Markdown page of that name still wins, as it does there.
+        const allPages = client.ui.viewState.allPages;
         const page = isDenote
-          ? resolveDenoteIdentifier(client.ui.viewState.allPages, identifier)
-          : client.ui.viewState.allPages.find((p) => p.name === target);
+          ? resolveDenoteIdentifier(allPages, identifier)
+          : (allPages.find((p) => p.name === target) ??
+            allPages.find((p) => p.name === `${target}.org`));
         // A note's own title is the best label when the link carries no
         // description; the bare identifier is the last resort.
         const text =
@@ -132,11 +139,12 @@ export function denoteLinkPlugin(client: Client) {
                 ? "sb-wiki-link sb-denote-link"
                 : "sb-wiki-link sb-denote-link sb-wiki-link-page-missing",
               callback: (e) => {
-                if (!page) {
+                if (!page && isDenote) {
+                  // A Denote link names an identifier. There is nothing to
+                  // create for one no note carries -- the identifier *is* the
+                  // note's identity, minted when the file is.
                   client.ui.flashNotification(
-                    isDenote
-                      ? `No note with identifier ${identifier}`
-                      : `Page not found: ${target}`,
+                    `No note with identifier ${identifier}`,
                     "error",
                   );
                   return;
@@ -144,6 +152,18 @@ export function denoteLinkPlugin(client: Client) {
                 if (e.altKey) {
                   client.editorView.dispatch({ selection: { anchor: from } });
                   client.focus();
+                  return;
+                }
+                if (!page) {
+                  // A bare Org link to a page that does not exist yet: follow
+                  // it and let it be created, as a Markdown wiki link is and as
+                  // following this one with the keyboard already does. `.org`,
+                  // matching the note doing the linking.
+                  void client.navigate(
+                    { path: `${target}.org` as `${string}.${string}` },
+                    false,
+                    e.ctrlKey || e.metaKey,
+                  );
                   return;
                 }
                 void client.navigate(

@@ -466,18 +466,33 @@ export function parseDenoteFrontMatter(
   return result;
 }
 
-/** Renders front matter for a new note, per `denote-file-types`. */
+/**
+ * Renders front matter for a new note, per `denote-file-types`.
+ *
+ * A component with no value is dropped unless it is one Denote keeps anyway.
+ * `denote-front-matter-components-present-even-if-empty-value` defaults to
+ * title, keywords, date and identifier — so the *signature* line disappears
+ * when there is no signature, rather than being written empty.
+ */
 export function formatDenoteFrontMatter(
   frontMatter: DenoteFrontMatter,
   fileType: DenoteFileType,
 ): string {
-  return frontMatterSpecs[fileType].template({
+  const spec = frontMatterSpecs[fileType];
+  const rendered = spec.template({
     title: frontMatter.title ?? "",
     date: frontMatter.date ?? "",
     keywords: frontMatter.keywords,
     identifier: frontMatter.identifier ?? "",
     signature: frontMatter.signature ?? "",
   });
+  if (frontMatter.signature) {
+    return rendered;
+  }
+  return rendered
+    .split("\n")
+    .filter((line) => !spec.signature.test(line))
+    .join("\n");
 }
 
 /** `denote-date-org-timestamp`: `[2022-08-05 Fri 13:10]`. */
@@ -624,4 +639,145 @@ export function compileDblockRegexp(
   } catch {
     return (name) => name.includes(pattern);
   }
+}
+
+// ---------------------------------------------------------------------------
+// denote-journal
+// ---------------------------------------------------------------------------
+
+/** The symbolic values `denote-journal-title-format` accepts. */
+export type JournalTitleFormat =
+  | "day"
+  | "day-date-month-year"
+  | "day-date-month-year-24h"
+  | "day-date-month-year-12h";
+
+/**
+ * `denote-journal-title-format`'s symbols, as the `format-time-string`
+ * patterns denote-journal maps them to.
+ */
+const journalTitlePatterns: Record<JournalTitleFormat, string> = {
+  day: "%A",
+  "day-date-month-year": "%A %e %B %Y",
+  "day-date-month-year-24h": "%A %e %B %Y %H:%M",
+  "day-date-month-year-12h": "%A %e %B %Y %I:%M %^p",
+};
+
+const weekdays = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+];
+
+const months = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+
+function pad(n: number, width = 2, filler = "0"): string {
+  return String(n).padStart(width, filler);
+}
+
+/**
+ * The subset of `format-time-string` that `denote-journal-title-format` uses.
+ *
+ * Only the specifiers reachable from that option are implemented; an unknown
+ * one is left as written rather than silently dropped, so a custom format that
+ * outruns this is visible in the title instead of quietly wrong.
+ */
+export function formatTimeString(pattern: string, date: Date): string {
+  return pattern.replace(/%(\^?)([A-Za-z%])/g, (whole, caret: string, spec) => {
+    let out: string | undefined;
+    switch (spec) {
+      case "A":
+        out = weekdays[date.getDay()];
+        break;
+      case "a":
+        out = weekdays[date.getDay()].slice(0, 3);
+        break;
+      case "B":
+        out = months[date.getMonth()];
+        break;
+      case "b":
+        out = months[date.getMonth()].slice(0, 3);
+        break;
+      case "Y":
+        out = String(date.getFullYear());
+        break;
+      case "m":
+        out = pad(date.getMonth() + 1);
+        break;
+      // `%e` is space-padded, `%d` zero-padded -- the difference survives into
+      // the title, though sluggification collapses the run of spaces.
+      case "e":
+        out = pad(date.getDate(), 2, " ");
+        break;
+      case "d":
+        out = pad(date.getDate());
+        break;
+      case "H":
+        out = pad(date.getHours());
+        break;
+      case "M":
+        out = pad(date.getMinutes());
+        break;
+      case "I":
+        out = pad(date.getHours() % 12 === 0 ? 12 : date.getHours() % 12);
+        break;
+      case "p":
+        out = date.getHours() < 12 ? "am" : "pm";
+        break;
+      case "%":
+        return "%";
+      default:
+        return whole;
+    }
+    return caret ? out.toUpperCase() : out;
+  });
+}
+
+/**
+ * The title `denote-journal` gives an entry for `date`.
+ *
+ * `format` is either one of the symbols the Emacs option accepts or a literal
+ * `format-time-string` pattern, exactly as `denote-journal-title-format` is.
+ */
+export function journalTitle(date: Date, format: string): string {
+  const pattern = journalTitlePatterns[format as JournalTitleFormat] ?? format;
+  return formatTimeString(pattern, date);
+}
+
+/**
+ * `YYYY-MM-DD` as a date in the *local* zone.
+ *
+ * `new Date("2026-09-04")` is parsed as UTC midnight, which is the day before
+ * everywhere west of Greenwich — so a journal keyed off it opens yesterday's
+ * entry. Handing the components over separately avoids that. Anything else is
+ * left to `Date` to interpret.
+ */
+export function parseLocalDate(dateStr: string): Date {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr.trim());
+  if (!match) {
+    return new Date(dateStr);
+  }
+  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+}
+
+/** `YYYYMMDD` — the identifier prefix every entry for a day shares. */
+export function journalDateStamp(date: Date): string {
+  return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}`;
 }

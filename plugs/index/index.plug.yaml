@@ -167,6 +167,25 @@ functions:
   # The `[[` completion's create row -- see `denoteCreateFromLink`.
   denoteCreateFromLink:
     path: ./denote.ts:denoteCreateFromLink
+  # denote-journal. The `Journal:` commands in Library/Std delegate to these,
+  # so there is one journal system rather than two.
+  denoteJournalOpenOrCreate:
+    path: ./denote.ts:denoteJournalOpenOrCreate
+  denoteJournalEntries:
+    path: ./denote.ts:denoteJournalEntries
+  denoteJournalToday:
+    path: ./denote.ts:denoteJournalTodayCommand
+    command:
+      name: "Denote: Journal Today"
+      requireMode: rw
+  denoteJournalPrevious:
+    path: ./denote.ts:denoteJournalPreviousCommand
+    command:
+      name: "Denote: Journal Previous"
+  denoteJournalNext:
+    path: ./denote.ts:denoteJournalNextCommand
+    command:
+      name: "Denote: Journal Next"
 
   # Headers
   headerComplete:

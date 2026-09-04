@@ -298,3 +298,38 @@ A bare [[https://example.com/naked]] link.
     await expect(editor).toContainText("[[https://example.com/some/long/path]");
   });
 });
+
+test.describe("Bare Org links render", () => {
+  test.use({
+    spaceFiles: {
+      "index.md": "# Index\n",
+      "Note.org": "#+title: Note\n\nMentions [[Bob]] and [[Nobody]] here.\n",
+      "Bob.org": "#+title: Bob\n",
+    },
+  });
+
+  test("a bare [[Page]] is drawn as a link, present or missing", async ({
+    sbPage,
+    sbServer,
+  }) => {
+    // These fell between two plugins: the link plugin stepped aside for
+    // anything description-less in case it was an image, and the image plugin
+    // declined because it is not media -- so neither drew them and they showed
+    // as raw source.
+    await gotoSilverBulletPage(sbPage, sbServer, "Note.org");
+    const editor = sbPage.locator("#sb-editor .cm-content");
+    await expect(editor).toContainText("Mentions");
+
+    const existing = editor.locator("a.sb-wiki-link", { hasText: "Bob" });
+    await expect(existing).toBeVisible({ timeout: 20_000 });
+    await expect(existing).not.toHaveClass(/sb-wiki-link-page-missing/);
+
+    // A link to a page that does not exist is drawn too, marked missing.
+    const missing = editor.locator("a.sb-wiki-link", { hasText: "Nobody" });
+    await expect(missing).toBeVisible({ timeout: 20_000 });
+    await expect(missing).toHaveClass(/sb-wiki-link-page-missing/);
+
+    // The brackets are gone -- it reads as the page name.
+    await expect(editor).not.toContainText("[[Bob]]");
+  });
+});

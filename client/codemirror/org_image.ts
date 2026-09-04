@@ -39,6 +39,39 @@ export function orgInlineImageTarget(
 }
 
 /**
+ * The transclusion an Org link resolves to, or null when it is not one this
+ * can draw as media.
+ *
+ * `orgInlineImageTarget` only says the link *could* be media — no description,
+ * no foreign scheme. Whether it actually is depends on the file, and both
+ * plugins have to agree: the link plugin steps aside for media, so if it
+ * stepped aside for every description-less link, a bare `[[Some Note]]` would
+ * be drawn by neither and vanish.
+ */
+export function orgInlineMedia(
+  state: EditorState,
+  node: SyntaxNode,
+  client: Client,
+): Transclusion | null {
+  const target = orgInlineImageTarget(state, node);
+  if (!target) {
+    return null;
+  }
+  const transclusion: Transclusion = {
+    url: target,
+    alias: "",
+    linktype: "wikilink",
+    dimension: attributeDimensions(state, node.from),
+  };
+  resolveTransclusionUrl(
+    transclusion,
+    client.currentPath() as Path,
+    client.clientSystem.allKnownFiles,
+  );
+  return createMediaElement(transclusion) ? transclusion : null;
+}
+
+/**
  * `#+ATTR_ORG: :width 300` on a line just above the link, which is how Org
  * sizes an inline image. `#+ATTR_HTML:` is read the same way.
  */
@@ -111,24 +144,10 @@ export function orgInlineImagePlugin(client: Client) {
         if (isCursorInRange(state, [from, to])) {
           return;
         }
-        const target = orgInlineImageTarget(state, node);
-        if (!target) {
-          return;
-        }
-        const transclusion: Transclusion = {
-          url: target,
-          alias: "",
-          linktype: "wikilink",
-          dimension: attributeDimensions(state, from),
-        };
-        resolveTransclusionUrl(
-          transclusion,
-          client.currentPath() as Path,
-          client.clientSystem.allKnownFiles,
-        );
         // Null means it is not media — an Org link to a note, say, which the
         // link plugin renders instead.
-        if (!createMediaElement(transclusion)) {
+        const transclusion = orgInlineMedia(state, node, client);
+        if (!transclusion) {
           return;
         }
         widgets.push(

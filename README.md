@@ -116,6 +116,29 @@ CSS, so it never lands in a selection or in copied text.
 Putting the cursor on a link shows its source, as every live-preview
 decoration does. Clicking an external link opens it in a new tab.
 
+## Journal
+
+The `Journal:` commands are `denote-journal`. `Journal: Today` (`Ctrl-q j`)
+opens today's entry or creates it; Previous and Next walk the entries. There is
+one journal system, not two — the commands and keys are unchanged, but an entry
+is a Denote note Emacs also recognises as one.
+
+An entry lives in `denote.journalDirectory`, carries `denote.journalKeyword`,
+and is titled with the date. Which day an entry belongs to is decided by its
+**identifier**, not its front-matter date — the same thing denote-journal
+matches on.
+
+| Key | Default | Mirrors |
+|---|---|---|
+| `denote.journalDirectory` | `journal` | `denote-journal-directory` |
+| `denote.journalKeyword` | `journal` | `denote-journal-keyword` |
+| `denote.journalTitleFormat` | `day-date-month-year-24h` | `denote-journal-title-format` |
+
+The title format takes the same four symbols Emacs does — `day`,
+`day-date-month-year`, `day-date-month-year-24h`, `day-date-month-year-12h` —
+or a literal `format-time-string` pattern. A specifier that is not implemented
+is left visible in the title rather than silently dropped.
+
 ## Configuration
 
 | Key | Default | Meaning |
@@ -171,6 +194,13 @@ Only** until the other side is populated, so an empty folder can never
 propagate deletions back. And do not point Syncthing at a directory another
 sync engine also manages — iCloud Drive, in particular, can evict files to
 placeholders and rewrite them underneath Syncthing.
+
+## Known gaps
+
+* **A bare Org link produces no backlink.** `[[Some Note]]` is not indexed as a
+  relation — only `denote:` links are — so it does not appear under Linked
+  Mentions. Linking by identifier, which is what the `[[` completion writes,
+  does.
 
 ## Documentation
 

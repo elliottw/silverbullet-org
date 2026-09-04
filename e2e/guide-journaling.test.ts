@@ -2,17 +2,22 @@ import type { Page } from "@playwright/test";
 import { expect, test, waitForSaveAndReadFromServer } from "./fixtures.ts";
 import { currentPage, runCommandViaPalette } from "./navigator-ui.ts";
 
-// This file exercises the workflow described in docs/Journal.md end-to-end.
-// The Journal feature is built in: the `Journal: Today` command and the
-// default template at `Library/Std/Journal/Template` ship with SilverBullet.
+// This file exercises the journalling workflow end-to-end. In this fork the
+// journal is `denote-journal`: `Journal: Today` makes a Denote note in the
+// journal directory, keyworded and titled with the date, rather than a
+// Markdown `Journal/<date>` page.
 
-/** Today's date as YYYY-MM-DD, matching the default journal page name. */
-function today(): string {
+/** Today's Denote identifier stamp, which every entry for the day carries. */
+function todayStamp(): string {
   const d = new Date();
-  const yyyy = d.getFullYear();
   const mm = String(d.getMonth() + 1).padStart(2, "0");
   const dd = String(d.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
+  return `${d.getFullYear()}${mm}${dd}`;
+}
+
+/** The page name of the entry currently open. */
+async function openedEntry(sbPage: Page): Promise<string> {
+  return await currentPage(sbPage).inputValue();
 }
 
 /**
@@ -29,8 +34,10 @@ async function runJournalToday(sbPage: Page): Promise<void> {
   await runCommandViaPalette(sbPage, "Journal: Today");
   await expect(sbPage.locator(".sb-modal")).toBeHidden();
 
-  const expectedPage = `Journal/${today()}`;
-  await expect(currentPage(sbPage)).toHaveValue(expectedPage);
+  await expect(currentPage(sbPage)).toHaveValue(
+    new RegExp(`^journal/${todayStamp()}T\\d{6}--.*__journal\\.org$`),
+    { timeout: 20_000 },
+  );
 }
 
 test.describe("Guide: Journaling", () => {
@@ -45,11 +52,11 @@ test.describe("Guide: Journaling", () => {
   }) => {
     await runJournalToday(sbPage);
 
-    // The editor should show the template body — frontmatter sets
-    // `tags: journal` (from the built-in template at
-    // Library/Std/Journal/Template).
+    // Denote front matter, not a template body: the keyword is what marks it
+    // as a journal entry, and the title is the date.
     const editor = sbPage.locator("#sb-editor .cm-content");
-    await expect(editor).toContainText("tags: journal");
+    await expect(editor).toContainText("#+filetags:  :journal:");
+    await expect(editor).toContainText("#+identifier:");
   });
 
   test("created journal page is tagged journal on disk", async ({
@@ -58,20 +65,20 @@ test.describe("Guide: Journaling", () => {
   }) => {
     await runJournalToday(sbPage);
 
-    // The file on disk must contain the `journal` tag from the template
-    // frontmatter, so queries over `index.tag("journal")` (used by the
-    // built-in `Journal: Previous Day` / `Next Day` commands and the
-    // default index-page section) return this entry.
-    const expectedPage = `Journal/${today()}`;
-    const content = await waitForSaveAndReadFromServer(
-      sbPage,
-      sbServer,
-      `${expectedPage}.md`,
-    );
-    expect(content).toContain("tags: journal");
+    // On disk it is a Denote note: the keyword is in the file name as well as
+    // the front matter, which is what makes Emacs see it as a journal entry.
+    // Read it straight from the server -- unlike a template, a Denote entry is
+    // written before it is opened, so there is no unsaved edit to wait for.
+    const entry = await openedEntry(sbPage);
+    expect(entry).toContain("__journal.org");
+    const resp = await fetch(`${sbServer.url}/.fs/${entry}`);
+    expect(resp.ok).toBe(true);
+    const content = await resp.text();
+    expect(content).toContain(":journal:");
+    expect(content).toContain("#+identifier:");
   });
 
-  test("new journal entry mentioning a topic shows up under that topic's Linked Mentions", async ({
+  test("a journal entry can link out to a new page, which is created as Org", async ({
     sbPage,
     sbServer,
   }) => {
@@ -81,17 +88,22 @@ test.describe("Guide: Journaling", () => {
     // "watch topic pages come alive" flow from the guide.
     const editor = sbPage.locator("#sb-editor .cm-content");
     await editor.click();
-    // The template places the cursor at the first bullet's content.
+    // Into the body: a click lands wherever it lands, and typing into Denote
+    // front matter would rename the file rather than write an entry.
+    await sbPage.keyboard.press("Control+End");
     await sbPage.keyboard.type("Reviewed the Q2 roadmap with [[Alice]]", {
       delay: 20,
     });
+    // Live preview shows the source while the cursor is on a link, so step off
+    // it before looking for the rendered one.
+    await sbPage.keyboard.press("Enter");
 
-    // Wait for the journal page to save
-    const expectedPage = `Journal/${today()}`;
+    // Wait for the journal entry to save
+    const entry = await openedEntry(sbPage);
     const journalContent = await waitForSaveAndReadFromServer(
       sbPage,
       sbServer,
-      `${expectedPage}.md`,
+      entry,
     );
     expect(journalContent).toContain("[[Alice]]");
 
@@ -100,16 +112,17 @@ test.describe("Guide: Journaling", () => {
     await expect(wikiLinkText).toBeVisible({ timeout: 10_000 });
     await wikiLinkText.click();
 
+    // `.org`: a note linked from an Org page is created as one, matching the
+    // note that linked to it.
     await expect(sbPage.locator("#sb-current-page input.sb-input")).toHaveValue(
-      "Alice",
+      "Alice.org",
     );
 
-    // Alice's page should show a Linked Mentions section with the journal
-    // entry we just wrote. The widget is rendered by a built-in script.
-    const aliceEditor = sbPage.locator("#sb-editor .cm-content");
-    await expect(aliceEditor).toContainText("Linked Mentions", {
-      timeout: 15_000,
-    });
-    await expect(aliceEditor).toContainText("Reviewed the Q2 roadmap");
+    // NOTE: no Linked Mentions assertion here, deliberately. A *bare* Org link
+    // is not indexed as a relation -- only `denote:` links are -- so it
+    // produces no backlink. Linking by identifier does, which is what the `[[`
+    // completion writes and what `e2e/denote.test.ts` covers under
+    // "Backlinks". Writing a bare link to a page that does not exist yet is
+    // the one route that leaves no trail.
   });
 });

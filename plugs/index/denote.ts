@@ -6,6 +6,9 @@ import {
   denoteIdentifier,
   denoteIdentifierDate,
   denoteLinkDescription,
+  journalDateStamp,
+  journalTitle,
+  parseLocalDate,
   compileDblockRegexp,
   type DblockParams,
   parseDblockParams,
@@ -293,6 +296,11 @@ export type NewNoteSpec = {
   keywords: string[];
   signature?: string;
   fileType?: DenoteFileType;
+  /**
+   * A subdirectory to write into, as `denote-journal-directory` is one.
+   * Denote's library is otherwise flat: keywords are the organisation.
+   */
+  directory?: string;
 };
 
 /**
@@ -314,13 +322,14 @@ export async function createDenoteNote(spec: NewNoteSpec): Promise<string> {
   const signature = spec.signature
     ? sluggify("signature", spec.signature)
     : undefined;
-  const pageName = formatDenoteName({
+  const name = formatDenoteName({
     identifier,
     title: spec.title,
     keywords: spec.keywords,
     signature,
     extension: denoteExtension(fileType),
   });
+  const pageName = spec.directory ? `${spec.directory}/${name}` : name;
   const frontMatter = formatDenoteFrontMatter(
     {
       title: spec.title,
@@ -676,23 +685,32 @@ export function denoteNameFromFrontMatter(
     // No title to rebuild the name from; leave the file alone.
     return null;
   }
-  const renamed = formatDenoteName({
-    identifier: name.identifier,
-    title: frontMatter.title,
-    // An absent keywords line means "unknown", not "none": keep what the file
-    // name already carries rather than silently dropping it. Keywords taken
-    // from the front matter are sorted, as `denote--rename-file` does; the
-    // file name's existing ones are left as they are, so a note is never
-    // renamed purely to reorder them.
-    keywords: frontMatter.hasKeywords
-      ? frontMatter.keywords
-          .map((keyword) => sluggify("keyword", keyword))
-          .filter(Boolean)
-          .sort()
-      : name.keywords,
-    signature: frontMatter.signature ?? name.signature,
-    extension: name.extension,
-  });
+  // Denote's library is flat, but not everything in it is: a journal lives in
+  // `denote-journal-directory`, and a silo is its own folder. The front matter
+  // describes the *note*, never where it sits, so the folder is carried across
+  // -- rebuilding from the front matter alone would quietly move the file to
+  // the space root and break the rename into a relocation.
+  const slash = pageName.lastIndexOf("/");
+  const folder = slash === -1 ? "" : pageName.slice(0, slash + 1);
+  const renamed =
+    folder +
+    formatDenoteName({
+      identifier: name.identifier,
+      title: frontMatter.title,
+      // An absent keywords line means "unknown", not "none": keep what the file
+      // name already carries rather than silently dropping it. Keywords taken
+      // from the front matter are sorted, as `denote--rename-file` does; the
+      // file name's existing ones are left as they are, so a note is never
+      // renamed purely to reorder them.
+      keywords: frontMatter.hasKeywords
+        ? frontMatter.keywords
+            .map((keyword) => sluggify("keyword", keyword))
+            .filter(Boolean)
+            .sort()
+        : name.keywords,
+      signature: frontMatter.signature ?? name.signature,
+      extension: name.extension,
+    });
   return renamed === pageName ? null : renamed;
 }
 
@@ -1168,4 +1186,166 @@ export async function insertTodaysLinksDblockCommand() {
     `:regexp ${JSON.stringify(today)} :not-regexp nil :excluded-dirs-regexp nil ` +
       `:sort-by-component nil :reverse-sort nil :id-only nil :include-date nil`,
   );
+}
+
+// ---------------------------------------------------------------------------
+// denote-journal
+// ---------------------------------------------------------------------------
+
+type JournalConfig = {
+  /** `denote-journal-directory`, relative to the space. */
+  directory: string;
+  /** `denote-journal-keyword`. */
+  keyword: string;
+  /** `denote-journal-title-format`. */
+  titleFormat: string;
+};
+
+async function journalConfig(): Promise<JournalConfig> {
+  return {
+    directory: (await system.getConfig(
+      "denote.journalDirectory",
+      "journal",
+    )) as string,
+    keyword: (await system.getConfig(
+      "denote.journalKeyword",
+      "journal",
+    )) as string,
+    titleFormat: (await system.getConfig(
+      "denote.journalTitleFormat",
+      "day-date-month-year-24h",
+    )) as string,
+  };
+}
+
+/**
+ * Whether a note is a journal entry for the day `stamp` names.
+ *
+ * This is `denote-journal--filename-regexp` and `--keyword-regex` together: an
+ * entry lives in the journal directory, its identifier is stamped with that
+ * day, and it carries the journal keyword. The identifier is what decides the
+ * day — not the front matter date, which a user may have edited.
+ */
+function isJournalEntryFor(
+  note: DenoteNoteSummary,
+  stamp: string,
+  config: JournalConfig,
+): boolean {
+  const inDirectory = config.directory
+    ? note.name.startsWith(`${config.directory}/`)
+    : true;
+  return (
+    inDirectory &&
+    note.identifier.startsWith(stamp) &&
+    note.keywords.includes(config.keyword)
+  );
+}
+
+/** Every journal entry, newest first. */
+export async function denoteJournalEntries(): Promise<DenoteNoteSummary[]> {
+  const config = await journalConfig();
+  const notes = await denoteNotes();
+  return notes
+    .filter(
+      (note) =>
+        (config.directory
+          ? note.name.startsWith(`${config.directory}/`)
+          : true) && note.keywords.includes(config.keyword),
+    )
+    .sort((a, b) => b.identifier.localeCompare(a.identifier));
+}
+
+/**
+ * `denote-journal-new-or-existing-entry`: open today's entry, creating it if
+ * there is none.
+ *
+ * Denote prompts when a day has more than one entry; the newest is taken here
+ * instead, since the picker is a keystroke away and a prompt on a key you
+ * press every day gets old.
+ */
+export async function denoteJournalOpenOrCreate(
+  dateStr?: string,
+): Promise<void> {
+  const config = await journalConfig();
+  const now = new Date();
+  let when = dateStr ? parseLocalDate(dateStr) : now;
+  if (Number.isNaN(when.getTime())) {
+    await editor.flashNotification(`Not a date: ${dateStr}`, "error");
+    return;
+  }
+  // A date string carries no time, but the default title format ends in
+  // `%H:%M` -- denote-journal stamps an entry with the moment it was written.
+  // For today that moment is now; for an explicit past date there is no such
+  // moment, and midnight is the honest answer.
+  if (journalDateStamp(when) === journalDateStamp(now)) {
+    when = now;
+  }
+  const stamp = journalDateStamp(when);
+  const existing = (await denoteJournalEntries()).filter((note) =>
+    isJournalEntryFor(note, stamp, config),
+  );
+  if (existing.length > 0) {
+    await editor.navigate(pathFromPageName(existing[0].name) as any);
+    return;
+  }
+  const pageName = await createDenoteNote({
+    title: journalTitle(when, config.titleFormat),
+    keywords: [config.keyword],
+    directory: config.directory,
+  });
+  const text = await space.readPage(pageName);
+  await editor.navigate({
+    path: pageName as `${string}.${string}`,
+    details: { type: "position", pos: text.length },
+  });
+}
+
+/**
+ * The entry before or after the one being read, by identifier.
+ *
+ * Ordering on the identifier rather than the front-matter date keeps this
+ * agreeing with which day an entry *is*, which is the same thing
+ * `denote-journal` matches on.
+ */
+export async function denoteJournalNeighbor(
+  direction: "previous" | "next",
+): Promise<void> {
+  const entries = await denoteJournalEntries();
+  if (entries.length === 0) {
+    await editor.flashNotification("No journal entries yet", "error");
+    return;
+  }
+  const current = await editor.getCurrentPage();
+  const index = entries.findIndex((note) => note.name === current);
+  // Reading something that is not an entry, "previous" means the latest one.
+  const target =
+    index === -1
+      ? direction === "previous"
+        ? entries[0]
+        : undefined
+      : direction === "previous"
+        ? entries[index + 1]
+        : entries[index - 1];
+  if (!target) {
+    await editor.flashNotification(
+      direction === "previous"
+        ? "No earlier journal entries"
+        : "No later journal entries",
+      "error",
+    );
+    return;
+  }
+  await editor.navigate(pathFromPageName(target.name) as any);
+}
+
+export function denoteJournalTodayCommand(): Promise<void> {
+  return denoteJournalOpenOrCreate();
+}
+
+export function denoteJournalPreviousCommand(): Promise<void> {
+  return denoteJournalNeighbor("previous");
+}
+
+export function denoteJournalNextCommand(): Promise<void> {
+  return denoteJournalNeighbor("next");
 }

@@ -88,3 +88,36 @@ test("Markdown and plain text notes work too", () => {
     ),
   ).toEqual("20240125T164237--new-title__b.md");
 });
+
+test("a note in a subdirectory is renamed, not relocated", () => {
+  // Denote's library is flat but not uniformly so: a journal entry lives in
+  // `denote-journal-directory`. Rebuilding the name from front matter alone
+  // dropped the folder, quietly moving the file to the space root -- which
+  // turns a rename into a relocation and breaks anything holding the path.
+  expect(
+    denoteNameFromFrontMatter(
+      "journal/20250820T123820--old-title__journal.org",
+      "#+title:      Wednesday 20 August 2025 12:38\n#+filetags:   :journal:\n",
+    ),
+  ).toBe(
+    "journal/20250820T123820--wednesday-20-august-2025-1238__journal.org",
+  );
+});
+
+test("a nested folder is preserved whole", () => {
+  expect(
+    denoteNameFromFrontMatter(
+      "areas/law/20240125T164237--old__costs.org",
+      "#+title:      Court Costs\n#+filetags:   :costs:\n",
+    ),
+  ).toBe("areas/law/20240125T164237--court-costs__costs.org");
+});
+
+test("a note already correctly named in a folder is left alone", () => {
+  expect(
+    denoteNameFromFrontMatter(
+      "journal/20250820T123820--wednesday-20-august-2025-1238__journal.org",
+      "#+title:      Wednesday 20 August 2025 12:38\n#+filetags:   :journal:\n",
+    ),
+  ).toBeNull();
+});

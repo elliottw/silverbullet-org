@@ -1140,3 +1140,88 @@ test.describe("A bare Org link", () => {
     });
   });
 });
+
+test.describe("denote-journal", () => {
+  // Two real entries from the library, shaped exactly as denote-journal writes
+  // them: in `journal/`, keyword `journal`, title built from the date.
+  const AUG =
+    "journal/20250820T123820--wednesday-20-august-2025-1238__journal.org";
+  const FEB = "journal/20260228T114300--28-february-2026__journal.org";
+
+  test.use({
+    spaceFiles: {
+      "index.md": "# Denote\n",
+      [COSTS]: note(COSTS),
+      [AUG]:
+        "#+title:      Wednesday 20 August 2025 12:38\n#+filetags:   :journal:\n#+identifier: 20250820T123820\n\nAugust entry.\n",
+      [FEB]:
+        "#+title:      28 February 2026\n#+filetags:   :journal:\n#+identifier: 20260228T114300\n\nFebruary entry.\n",
+    },
+  });
+
+  async function runCommand(page: any, name: string) {
+    await page.evaluate((command: string) => {
+      void (globalThis as any).sbRuntime.evalLuaScript(
+        `editor.invokeCommand("${command}")`,
+      );
+    }, name);
+  }
+
+  test("Journal: Today creates a denote-journal entry, not a Markdown page", async ({
+    sbPage,
+    sbServer,
+  }) => {
+    await gotoSilverBulletPage(sbPage, sbServer, COSTS);
+    await expect(sbPage.locator("#sb-editor .cm-content")).toContainText(
+      "Court Costs",
+    );
+    await runCommand(sbPage, "Journal: Today");
+
+    // Upstream would have made `Journal/<date>.md`. This lands in the journal
+    // directory with a Denote name, the journal keyword, and a dated title.
+    await expect(currentPage(sbPage)).toHaveValue(
+      /^journal\/\d{8}T\d{6}--.*__journal\.org$/,
+      { timeout: 20_000 },
+    );
+    const editor = sbPage.locator("#sb-editor .cm-content");
+    await expect(editor).toContainText("#+filetags:  :journal:");
+  });
+
+  test("Journal: Today reopens today's entry rather than making a second", async ({
+    sbPage,
+    sbServer,
+  }) => {
+    await gotoSilverBulletPage(sbPage, sbServer, COSTS);
+    await expect(sbPage.locator("#sb-editor .cm-content")).toContainText(
+      "Court Costs",
+    );
+    await runCommand(sbPage, "Journal: Today");
+    await expect(currentPage(sbPage)).toHaveValue(/^journal\//, {
+      timeout: 20_000,
+    });
+    const first = await currentPage(sbPage).inputValue();
+
+    await gotoSilverBulletPage(sbPage, sbServer, COSTS);
+    await expect(sbPage.locator("#sb-editor .cm-content")).toContainText(
+      "Court Costs",
+    );
+    await runCommand(sbPage, "Journal: Today");
+    await expect(currentPage(sbPage)).toHaveValue(first, { timeout: 20_000 });
+  });
+
+  test("Previous and Next walk the entries by date", async ({
+    sbPage,
+    sbServer,
+  }) => {
+    // Newest first, so from February "previous" is the August entry.
+    await gotoSilverBulletPage(sbPage, sbServer, FEB);
+    await expect(sbPage.locator("#sb-editor .cm-content")).toContainText(
+      "February entry",
+    );
+    await runCommand(sbPage, "Journal: Previous Day");
+    await expect(currentPage(sbPage)).toHaveValue(AUG, { timeout: 20_000 });
+
+    await runCommand(sbPage, "Journal: Next Day");
+    await expect(currentPage(sbPage)).toHaveValue(FEB, { timeout: 20_000 });
+  });
+});

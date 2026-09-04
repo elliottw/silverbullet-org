@@ -231,3 +231,37 @@ test("Each file type has its extension", () => {
   expect(denoteExtension("text")).toEqual(".txt");
   expect(denoteExtension("markdown-yaml")).toEqual(".md");
 });
+
+test("an empty signature line is dropped, as denote.el drops it", () => {
+  // `denote-front-matter-components-present-even-if-empty-value` defaults to
+  // (title keywords date identifier) -- signature is deliberately absent, so
+  // a note without one has no `#+signature:` line at all.
+  const org = formatDenoteFrontMatter(
+    {
+      title: "Court Costs",
+      date: "[2024-01-25 Thu 16:42]",
+      keywords: ["costs"],
+      hasKeywords: true,
+      identifier: "20240125T164237",
+    },
+    "org",
+  );
+  expect(org).not.toContain("#+signature");
+  expect(org).toContain("#+title:      Court Costs");
+  // The components Denote keeps even when empty are still written.
+  expect(org).toContain("#+identifier: 20240125T164237");
+
+  // A signature that exists is written as before.
+  const signed = formatDenoteFrontMatter(
+    {
+      title: "Court Costs",
+      date: "[2024-01-25 Thu 16:42]",
+      keywords: ["costs"],
+      hasKeywords: true,
+      identifier: "20240125T164237",
+      signature: "1a",
+    },
+    "org",
+  );
+  expect(signed).toContain("#+signature:  1a");
+});
