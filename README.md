@@ -159,6 +159,31 @@ SB_SPACE_IGNORE='*~
 The `\#` escape matters: gitignore reads a leading `#` as a comment, so an
 unescaped `#*#` is silently discarded.
 
+### Service workers, and why a deploy looks like it did nothing
+
+SilverBullet is a PWA. Its service worker serves the client and the plugs from
+cache, and it answers *before* the network does — so after deploying a new
+build the browser keeps running the old one, and a new command simply is not in
+the palette. A hard reload does not dislodge it.
+
+While you are actively deploying, set:
+
+```
+SB_DISABLE_SERVICE_WORKER=1
+```
+
+That does more than skip registration: the client tears down any worker already
+installed and flushes its caches on the next load. You lose offline use and gain
+"what I deployed is what I see", which is the better trade while the code is
+moving. Unset it when you want offline back.
+
+Without it, the fix is manual, per browser: DevTools → Application → Service
+Workers → Unregister, then reload.
+
+To tell the two apart before reaching for either, check the server rather than
+the browser — fetch `/.fs/Library/Std/Plugs/index.plug.js` and grep it for the
+symbol you expect. If it is there, the deploy worked and the browser is stale.
+
 ### Syncing a library with Syncthing
 
 Syncthing works well here — SilverBullet keeps **no database in the space**, so
