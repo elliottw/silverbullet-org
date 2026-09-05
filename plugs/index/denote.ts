@@ -6,6 +6,7 @@ import {
   denoteIdentifier,
   denoteIdentifierDate,
   denoteLinkDescription,
+  isDenoteNoteFile,
   journalDateStamp,
   journalTitle,
   parseLocalDate,
@@ -813,17 +814,26 @@ export async function denoteNotes(): Promise<DenoteNoteSummary[]> {
       continue;
     }
     let title = parsed.title ? unslugTitle(parsed.title) : parsed.identifier;
-    try {
-      const text = decoder.decode(await space.readDocument(document.name));
-      const frontMatter = parseDenoteFrontMatter(
-        text,
-        denoteFileType(parsed.extension, text),
-      );
-      if (frontMatter.title) {
-        title = frontMatter.title;
+    // Only a *note* is opened to read its front matter. `denote-directory-files`
+    // lists every file carrying an identifier, so a Denote-named PDF belongs in
+    // this list and a dblock's `:regexp` should still match it — but it has no
+    // front matter to find, and reading it means downloading it. A real
+    // library holds a few hundred megabytes of such attachments against a few
+    // of notes, and this runs on every journal command and every dynamic
+    // block. Its file name is the only title it has anyway.
+    if (isDenoteNoteFile(document.name)) {
+      try {
+        const text = decoder.decode(await space.readDocument(document.name));
+        const frontMatter = parseDenoteFrontMatter(
+          text,
+          denoteFileType(parsed.extension, text),
+        );
+        if (frontMatter.title) {
+          title = frontMatter.title;
+        }
+      } catch {
+        // Unreadable: the file-name title is still better than dropping the note.
       }
-    } catch {
-      // Unreadable: the file-name title is still better than dropping the note.
     }
     notes.push({
       name: document.name,

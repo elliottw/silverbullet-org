@@ -199,8 +199,17 @@ export function documentExtension(editor: Client) {
       const payload = [...event.clipboardData!.items];
       const richText = event.clipboardData?.getData("text/html");
 
+      // Rich text is converted with turndown, which only speaks Markdown, so
+      // an Org page must not take this branch: it would write Markdown into an
+      // Org file. It matters most for an image, whose clipboard payload
+      // carries `text/html` *beside* the file -- taking the HTML would paste a
+      // Markdown `![](…)` pointing at wherever the image came from, instead of
+      // uploading it and writing an Org link. Falling through reaches the file
+      // handler, and plain text pastes as text.
+      const richTextAllowed = linkSyntaxFor(editor.currentPath()) !== "org";
+
       // Only do rich text paste if shift is NOT down
-      if (richText && !shiftDown) {
+      if (richText && !shiftDown && richTextAllowed) {
         // Are we in a fenced code block?
         const editorText = editor.editorView.state.sliceDoc();
         const tree = lezerToParseTree(

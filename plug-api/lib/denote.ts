@@ -531,6 +531,23 @@ export function denoteDate(date: Date, fileType: DenoteFileType): string {
 }
 
 /** The file extension a Denote file type is written with. */
+/**
+ * The extensions `denote-file-types` defines, i.e. what makes a file a *note*.
+ *
+ * A Denote-named PDF is a file in the library, not a note: `denote-file-is-note-p`
+ * requires one of these. The distinction matters for more than tidiness —
+ * treating every Denote-named file as a note means opening it to read its front
+ * matter, and a library's attachments are orders of magnitude larger than its
+ * notes.
+ */
+export const denoteNoteExtensions = [".org", ".md", ".txt"];
+
+/** `denote-file-is-note-p`: a Denote-named file with a note's extension. */
+export function isDenoteNoteFile(path: string): boolean {
+  const lower = path.toLowerCase();
+  return denoteNoteExtensions.some((extension) => lower.endsWith(extension));
+}
+
 export function denoteExtension(fileType: DenoteFileType): string {
   switch (fileType) {
     case "org":

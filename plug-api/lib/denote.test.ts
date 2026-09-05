@@ -8,6 +8,7 @@ import {
   denoteOrgTimestamp,
   extractDenoteKeywords,
   formatDenoteFrontMatter,
+  isDenoteNoteFile,
   formatDenoteName,
   isDenotePath,
   parseDenoteFrontMatter,
@@ -264,4 +265,23 @@ test("an empty signature line is dropped, as denote.el drops it", () => {
     "org",
   );
   expect(signed).toContain("#+signature:  1a");
+});
+
+test("a note is told from an attachment by its extension", () => {
+  // `denote-file-is-note-p`: a note has one of `denote-file-types`' extensions.
+  // Every Denote-named file belongs to the library -- that is what
+  // `denote-directory-files` lists -- but only a note has front matter, and
+  // only a note is worth opening to read it.
+  expect(isDenoteNoteFile("20240125T164237--court-costs__costs.org")).toBe(
+    true,
+  );
+  expect(isDenoteNoteFile("20240125T164237--notes__x.md")).toBe(true);
+  expect(isDenoteNoteFile("20240125T164237--plain__x.txt")).toBe(true);
+  expect(
+    isDenoteNoteFile("20250210T190927--rocket-mortgage__finance.pdf"),
+  ).toBe(false);
+  expect(isDenoteNoteFile("20241112T123242--review__article.html")).toBe(false);
+  expect(isDenoteNoteFile("20251004T193313--guide__iteam.odt")).toBe(false);
+  // Case is not significant.
+  expect(isDenoteNoteFile("20240125T164237--shouty__x.ORG")).toBe(true);
 });

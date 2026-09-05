@@ -163,3 +163,92 @@ test.describe("Dropping a file into an Org page", () => {
     ).toBe(true);
   });
 });
+
+test.describe("Pasting into an Org page", () => {
+  test.use({
+    spaceFiles: {
+      "index.md": "# Index\n",
+      "Paste.org": "#+title: Paste\n\nBefore.\n",
+      "Paste.md": "# Paste md\n\nBefore.\n",
+    },
+  });
+
+  /** Dispatches a paste carrying both an image file and HTML, as a real
+   * clipboard does when you copy an image. */
+  async function pasteImage(page: any) {
+    await page.locator("#sb-editor .cm-content").click();
+    await page.keyboard.press("Control+End");
+    await page.evaluate(() => {
+      // 1x1 transparent PNG.
+      const bytes = Uint8Array.from(
+        atob(
+          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+        ),
+        (c) => c.charCodeAt(0),
+      );
+      const dt = new DataTransfer();
+      dt.items.add(new File([bytes], "shot.png", { type: "image/png" }));
+      dt.setData("text/html", '<img src="https://example.com/shot.png">');
+      document.querySelector("#sb-editor .cm-content")!.dispatchEvent(
+        new ClipboardEvent("paste", {
+          clipboardData: dt,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+  }
+
+  test("a pasted image becomes an Org file link, not Markdown", async ({
+    sbPage,
+    sbServer,
+  }) => {
+    // A clipboard image carries `text/html` beside the file. That HTML used to
+    // win, pasting a Markdown `![](…)` that pointed at wherever the image came
+    // from rather than uploading it.
+    await gotoSilverBulletPage(sbPage, sbServer, "Paste.org");
+    const editor = sbPage.locator("#sb-editor .cm-content");
+    await expect(editor).toContainText("Before.");
+    await pasteImage(sbPage);
+
+    // It asks where to put the file, as it does for a drop.
+    const prompt = sbPage
+      .locator(".sb-modal-box input, .sb-modal input")
+      .first();
+    await expect(prompt).toBeVisible({ timeout: 20_000 });
+    await prompt.press("Enter");
+    await sbPage.waitForTimeout(2500);
+
+    const text = await sbPage.evaluate(() =>
+      (globalThis as any).sbRuntime.evalLuaScript("return editor.getText()"),
+    );
+    expect(text).toContain("[[file:");
+    // Not Markdown, and not a link to where the image came from.
+    expect(text).not.toContain("![](");
+    expect(text).not.toContain("example.com");
+  });
+
+  test("a Markdown page still takes rich text as Markdown", async ({
+    sbPage,
+    sbServer,
+  }) => {
+    // Untouched: turndown speaks Markdown, and a Markdown page wants it.
+    await gotoSilverBulletPage(sbPage, sbServer, "Paste");
+    const editor = sbPage.locator("#sb-editor .cm-content");
+    await expect(editor).toContainText("Before.");
+    await editor.click();
+    await sbPage.keyboard.press("Control+End");
+    await sbPage.evaluate(() => {
+      const dt = new DataTransfer();
+      dt.setData("text/html", "<b>bold thing</b>");
+      document.querySelector("#sb-editor .cm-content")!.dispatchEvent(
+        new ClipboardEvent("paste", {
+          clipboardData: dt,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    await expect(editor).toContainText("**bold thing**", { timeout: 20_000 });
+  });
+});
