@@ -1,4 +1,5 @@
 import {
+  denoteAttachmentName,
   denoteDate,
   denoteExtension,
   denoteFileType,
@@ -141,8 +142,8 @@ export function denoteFrontMatter(
 
 // A Denote link names an identifier, never a path — that is what lets a note be
 // renamed without breaking inbound links — so resolving one needs the whole
-// file list. Every page name starts with its own identifier, so the map is
-// built from names alone and needs no index lookups, which keeps it free of
+// file list. Every Denote file name starts with its own identifier, so the map
+// is built from names alone and needs no index lookups, which keeps it free of
 // ordering problems during a full reindex.
 let identifierMap: Map<string, string> | undefined;
 let identifierMapBuiltAt = 0;
@@ -158,11 +159,20 @@ async function denoteIdentifierMap(): Promise<Map<string, string>> {
     return identifierMap;
   }
   const map = new Map<string, string>();
-  for (const page of await space.listPages()) {
-    const identifier = parseDenoteName(page.name)?.identifier;
+  // Attachments are Denote files too: `denote-rename-file` names a PDF the same
+  // way it names a note, and a `denote:` link may point at one. Listing them
+  // beside the notes is also what keeps an identifier unique across the whole
+  // library rather than only among its notes. Pages go first so that when a
+  // note and an attachment somehow share an identifier, the note wins.
+  const files = [
+    ...(await space.listPages()),
+    ...(await space.listDocuments()),
+  ];
+  for (const file of files) {
+    const identifier = parseDenoteName(file.name)?.identifier;
     // First one wins, so a duplicated identifier resolves deterministically.
     if (identifier && !map.has(identifier)) {
-      map.set(identifier, page.name);
+      map.set(identifier, file.name);
     }
   }
   identifierMap = map;
@@ -290,6 +300,30 @@ export async function freeIdentifier(date: Date): Promise<string> {
     candidate.setSeconds(candidate.getSeconds() + 1);
   }
   throw new Error("Could not find a free Denote identifier");
+}
+
+/**
+ * The Denote name an uploaded or pasted document should land under.
+ *
+ * Naming happens without a prompt: the identifier comes from the clock and the
+ * title from the name the file arrived with, which is all `denote-rename-file`
+ * would derive anyway for an attachment. Nothing is lost by not asking — the
+ * name stays editable afterwards, and a note's own rename machinery updates
+ * the links.
+ *
+ * @param options.name the file's incoming name; empty for a clipboard item
+ * @param options.extension extension including the dot, for when `name` has none
+ * @param options.time epoch milliseconds to date the identifier from, e.g. a
+ *   file's modification time; defaults to now
+ */
+export async function denoteAttachmentPath(options: {
+  name: string;
+  extension?: string;
+  time?: number;
+}): Promise<string> {
+  const date = options.time === undefined ? new Date() : new Date(options.time);
+  const identifier = await freeIdentifier(date);
+  return denoteAttachmentName(identifier, options.name, options.extension);
 }
 
 export type NewNoteSpec = {

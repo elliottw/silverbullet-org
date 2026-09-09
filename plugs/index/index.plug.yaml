@@ -139,6 +139,12 @@ functions:
     events:
       - page:saved
 
+  # Naming a pasted or uploaded document — see `denoteAttachmentPath`. Both
+  # the upload command and the editor's paste handler call this, so an
+  # identifier is issued from one place and stays unique library-wide.
+  denoteAttachmentPath:
+    path: ./denote.ts:denoteAttachmentPath
+
   denoteRenameFromFrontMatter:
     path: ./denote.ts:renameFromFrontMatterCommand
     command:

@@ -116,6 +116,29 @@ CSS, so it never lands in a selection or in copied text.
 Putting the cursor on a link shows its source, as every live-preview
 decoration does. Clicking an external link opens it in a new tab.
 
+## Attachments
+
+A pasted, dropped or uploaded file is named the way Denote names one, with no
+prompt:
+
+    Screenshot 2026-08-25 at 3.16.23 PM.png
+    -> 20260905T082013--screenshot-2026-08-25-at-31623-pm.png
+
+`denote-rename-file` renames any file, note or not — the scheme *is* the name,
+and only a note additionally carries front matter. So an attachment gets the
+same `IDENTIFIER--title.ext`, its title sluggified from whatever name it
+arrived under. A clipboard image, having no name of its own, is named by its
+identifier alone.
+
+Upstream prompts for a filename on every paste. It no longer does here, because
+there is nothing left to decide: the identifier comes from the clock and the
+title from the file. The name stays editable afterwards, and renaming it
+updates the links — which is the whole point of a Denote name.
+
+Identifiers are unique across the **library**, not merely across its notes, so
+an attachment and a note can never claim the same one. A `denote:` link
+therefore resolves to an attachment as readily as to a note.
+
 ## Journal
 
 The `Journal:` commands are `denote-journal`. `Journal: Today` (`Ctrl-q j`)

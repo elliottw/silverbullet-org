@@ -12,13 +12,8 @@ import {
 import { maximumDocumentSize } from "@silverbulletmd/silverbullet/constants";
 import { safeRun } from "@silverbulletmd/silverbullet/lib/async";
 import { resolveMarkdownLink } from "@silverbulletmd/silverbullet/lib/resolve";
-import { localDateString } from "@silverbulletmd/silverbullet/lib/dates";
 import type { UploadFile } from "@silverbulletmd/silverbullet/type/client";
-import {
-  isValidName,
-  isValidPath,
-  type Path,
-} from "@silverbulletmd/silverbullet/lib/ref";
+import { isValidPath, type Path } from "@silverbulletmd/silverbullet/lib/ref";
 import {
   documentLink,
   linkSyntaxFor,
@@ -42,26 +37,6 @@ turndownService.use(tables);
 
 function striptHtmlComments(s: string): string {
   return s.replace(/<!--[\s\S]*?-->/g, "");
-}
-
-function ensureValidFilenameWithExtension(filename: string): string {
-  if (isValidPath(filename)) {
-    return filename;
-  }
-  const match = filename.match(/\.([^.]+)$/);
-  return `file.${match ? match[1] : "txt"}`;
-}
-
-async function doesFileExist(
-  editor: Client,
-  filePath: string,
-): Promise<boolean> {
-  try {
-    await editor.space.spacePrimitives.getFileMeta(filePath);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 const urlRegexp =
@@ -281,27 +256,37 @@ export function documentExtension(editor: Client) {
       return false;
     }
     const fileType = file.type;
-    const ext = fileType.split("/")[1];
-    const fileName = localDateString(new Date())
-      .split(".")[0]
-      .replace("T", "_")
-      .replaceAll(":", "-");
     const data = await file!.getAsFile()?.arrayBuffer();
     if (!data) {
       return false;
     }
+    // A clipboard item carries no name of its own. It used to be given one
+    // made from the date, which the Denote identifier now says already, so
+    // only the extension is passed on and the identifier names the file.
     const fileData: UploadFile = {
-      name: `${fileName}.${ext}`,
+      name: "",
       contentType: fileType,
       content: new Uint8Array(data),
     };
-    await saveFile(fileData);
+    // An unrecognised clipboard type leaves the file extensionless rather than
+    // naming it `.undefined`.
+    const subtype = fileType.split("/")[1];
+    await saveFile(fileData, subtype ? `.${subtype}` : "");
   }
 
-  async function saveFile(file: UploadFile) {
+  /**
+   * Writes a pasted or dropped document into the space under a Denote name.
+   *
+   * The name is issued by the index plug rather than derived here, because an
+   * identifier has to be unique across the whole library and that is the plug
+   * holding the file list. `plugs/editor/upload.ts` takes the same route, so
+   * pasting and uploading name a document identically.
+   *
+   * @param fallbackExtension extension, dot included, for a clipboard item,
+   *   which arrives with no name to take one from
+   */
+  async function saveFile(file: UploadFile, fallbackExtension = "") {
     const maxSize = maximumDocumentSize;
-    const invalidPathMessage =
-      "Unable to upload file, invalid target filename or path";
 
     if (file.content.length > maxSize * 1024 * 1024) {
       editor.ui.flashNotification(
@@ -311,61 +296,23 @@ export function documentExtension(editor: Client) {
       return;
     }
 
-    let desiredFilePath = await editor.ui.prompt(
-      "File name for pasted document",
-      resolveMarkdownLink(
-        client.currentPath(),
-        ensureValidFilenameWithExtension(file.name),
-      ),
+    const name: string = await editor.clientSystem.localSyscall(
+      "system.invokeFunction",
+      [
+        "index.denoteAttachmentPath",
+        { name: file.name, extension: fallbackExtension },
+      ],
     );
-    if (desiredFilePath === undefined) {
-      // User hit cancel, so they know why we stopped and dont need an notification.
+    if (!isValidPath(name)) {
+      editor.ui.flashNotification(
+        `Could not build a valid file name for ${file.name || "the pasted document"}`,
+        "error",
+      );
       return;
     }
-    desiredFilePath = desiredFilePath.trim();
-    if (!isValidName(desiredFilePath)) {
-      editor.ui.flashNotification(invalidPathMessage, "error");
-      return;
-    }
-
-    // Check the given desired file path wont clobber an existing file. If it
-    // would, ask the user to confirm or provide another filename. Repeat this
-    // check for every new filename they give.
-    // Note: duplicate any modifications here to client/code_mirror/editor_paste.ts
-    let finalFilePath = null;
-    while (finalFilePath == null) {
-      if (await doesFileExist(editor, desiredFilePath)) {
-        let confirmedFilePath = await editor.ui.prompt(
-          "A file with that name already exists, keep the same name to replace it, or rename your file",
-          resolveMarkdownLink(
-            client.currentPath(),
-            ensureValidFilenameWithExtension(desiredFilePath),
-          ),
-        );
-        if (confirmedFilePath === undefined) {
-          // Unlike the initial filename prompt, we're inside a workflow here
-          // and should be explicit that the user action cancelled the whole
-          // operation.
-          editor.ui.flashNotification("Upload cancelled by user", "info");
-          return;
-        }
-        confirmedFilePath = confirmedFilePath.trim();
-        if (!isValidPath(confirmedFilePath)) {
-          editor.ui.flashNotification(invalidPathMessage, "error");
-          return;
-        }
-        if (desiredFilePath === confirmedFilePath) {
-          // if we got back the same path, we're replacing and should accept the given name
-          finalFilePath = desiredFilePath;
-        } else {
-          // we got a new path, so we must repeat the check
-          desiredFilePath = confirmedFilePath;
-          confirmedFilePath = undefined;
-        }
-      } else {
-        finalFilePath = desiredFilePath;
-      }
-    }
+    // No clobber check: the name leads with an identifier no other file in the
+    // library holds, so there is nothing there to overwrite.
+    const finalFilePath = resolveMarkdownLink(editor.currentPath(), name);
 
     await editor.space.writeDocument(finalFilePath, file.content);
     const documentMarkdown = documentLink(

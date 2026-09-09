@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
 import {
+  denoteAttachmentName,
   denoteDate,
   denoteExtension,
   denoteFileType,
@@ -284,4 +285,49 @@ test("a note is told from an attachment by its extension", () => {
   expect(isDenoteNoteFile("20251004T193313--guide__iteam.odt")).toBe(false);
   // Case is not significant.
   expect(isDenoteNoteFile("20240125T164237--shouty__x.ORG")).toBe(true);
+});
+
+// ---------------------------------------------------------------------------
+// Attachments
+// ---------------------------------------------------------------------------
+
+test("An uploaded file's name becomes its Denote title", () => {
+  expect(
+    denoteAttachmentName("20260905T080756", "Domestic_Partner_Affidavit.pdf"),
+  ).toEqual("20260905T080756--domestic-partner-affidavit.pdf");
+});
+
+test("A clipboard item, having no name, is named by its identifier alone", () => {
+  expect(denoteAttachmentName("20260905T080756", "", ".png")).toEqual(
+    "20260905T080756.png",
+  );
+});
+
+test("An attachment already carrying an identifier is left alone", () => {
+  const named = "20250210T190927--rocket-mortgage__finance.pdf";
+  expect(denoteAttachmentName("20260909T120000", named)).toEqual(named);
+});
+
+test("An attachment's title is sluggified as a note's title would be", () => {
+  // Dots go, so the screenshot's `3.16.23` collapses — `denote-sluggify-title`
+  // strips them from every component, which is what keeps the extension the
+  // only dot in the name.
+  expect(
+    denoteAttachmentName(
+      "20260825T151623",
+      "Screenshot 2026-08-25 at 3.16.23 PM.png",
+    ),
+  ).toEqual("20260825T151623--screenshot-2026-08-25-at-31623-pm.png");
+});
+
+test("Only the basename is used, so a folder never leaks into the title", () => {
+  expect(
+    denoteAttachmentName("20250217T140000", "Problem Frame/problem-frame.pdf"),
+  ).toEqual("20250217T140000--problem-frame.pdf");
+});
+
+test("A name that sluggifies to nothing leaves the identifier standing alone", () => {
+  expect(denoteAttachmentName("20260905T080756", "....png")).toEqual(
+    "20260905T080756.png",
+  );
 });

@@ -10,17 +10,31 @@ import {
 } from "@silverbulletmd/silverbullet/lib/ref";
 import type { UploadFile } from "@silverbulletmd/silverbullet/type/client";
 
-function ensureValidFilenameWithExtension(filename: string): string {
-  if (isValidPath(filename)) {
-    return filename;
+/**
+ * The Denote name a document should land under, from the index plug.
+ *
+ * Naming lives there because an identifier has to be unique across the whole
+ * library, and that is the plug holding the file list. Both this command and
+ * the editor's paste handler go through it, so the two agree.
+ *
+ * Note: duplicate any modifications here to client/codemirror/editor_paste.ts
+ */
+async function denoteName(file: UploadFile): Promise<string | undefined> {
+  const name: string = await system.invokeFunction(
+    "index.denoteAttachmentPath",
+    { name: file.name },
+  );
+  if (!isValidPath(name)) {
+    void editor.flashNotification(
+      `Could not build a valid file name for ${file.name}`,
+      "error",
+    );
+    return undefined;
   }
-  const match = filename.match(/\.([^.]+)$/);
-  return `file.${match ? match[1] : "txt"}`;
+  return name;
 }
 
 export async function saveFile(file: UploadFile) {
-  const invalidPathMessage =
-    "Unable to upload file, invalid target filename or path";
   const maxSize = await system.getConfig<number>(
     "maximumDocumentSize",
     maximumDocumentSize,
@@ -40,61 +54,16 @@ export async function saveFile(file: UploadFile) {
     return;
   }
 
-  let desiredFilePath = await editor.prompt(
-    "File name for uploaded document",
-    resolveMarkdownLink(
-      await editor.getCurrentPath(),
-      ensureValidFilenameWithExtension(file.name),
-    ),
+  const name = await denoteName(file);
+  if (name === undefined) {
+    return;
+  }
+  // No clobber check: the name leads with an identifier no other file in the
+  // library holds, so there is nothing there to overwrite.
+  const finalFilePath = resolveMarkdownLink(
+    await editor.getCurrentPath(),
+    name,
   );
-  if (desiredFilePath === undefined) {
-    // User hit cancel, so they know why we stopped and dont need an notification.
-    return;
-  }
-  desiredFilePath = desiredFilePath.trim();
-  if (!isValidPath(desiredFilePath)) {
-    void editor.flashNotification(invalidPathMessage, "error");
-    return;
-  }
-
-  // Check the given desired file path wont clobber an existing file. If it
-  // would, ask the user to confirm or provide another filename. Repeat this
-  // check for every new filename they give.
-  // Note: duplicate any modifications here to client/code_mirror/editor_paste.ts
-  let finalFilePath = null;
-  while (finalFilePath == null) {
-    if (await space.fileExists(desiredFilePath)) {
-      let confirmedFilePath = await editor.prompt(
-        "A file with that name already exists, keep the same name to replace it, or rename your file",
-        resolveMarkdownLink(
-          await editor.getCurrentPath(),
-          ensureValidFilenameWithExtension(desiredFilePath),
-        ),
-      );
-      if (confirmedFilePath === undefined) {
-        // Unlike the initial filename prompt, we're inside a workflow here
-        // and should be explicit that the user action cancelled the whole
-        // operation.
-        void editor.flashNotification("Upload cancelled by user", "info");
-        return;
-      }
-      confirmedFilePath = confirmedFilePath.trim();
-      if (!isValidPath(confirmedFilePath)) {
-        void editor.flashNotification(invalidPathMessage, "error");
-        return;
-      }
-      if (desiredFilePath === confirmedFilePath) {
-        // if we got back the same path, we're replacing and should accept the given name
-        finalFilePath = desiredFilePath;
-      } else {
-        // we got a new path, so we must repeat the check
-        desiredFilePath = confirmedFilePath;
-        confirmedFilePath = undefined;
-      }
-    } else {
-      finalFilePath = desiredFilePath;
-    }
-  }
 
   await space.writeDocument(finalFilePath, file.content);
 

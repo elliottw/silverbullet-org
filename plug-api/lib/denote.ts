@@ -548,6 +548,48 @@ export function isDenoteNoteFile(path: string): boolean {
   return denoteNoteExtensions.some((extension) => lower.endsWith(extension));
 }
 
+/**
+ * A Denote file name for an attachment: a document that arrived by upload or
+ * paste rather than being authored as a note.
+ *
+ * `denote-rename-file` renames any file, note or not — the scheme *is* the
+ * name, and only a note additionally carries front matter. So an attachment
+ * gets the same `IDENTIFIER--title.ext`, with its title taken from whatever
+ * name it arrived under.
+ *
+ * A file that already carries an identifier is returned untouched, so naming
+ * is idempotent: re-uploading a document does not stack a second identifier
+ * onto its name, and a retroactive pass can be re-run safely.
+ *
+ * @param identifier a Denote identifier no other file in the library holds
+ * @param name the name the file arrived under; empty for a clipboard item,
+ *   which has none, in which case the identifier alone names it
+ * @param fallbackExtension extension including the dot, used when `name`
+ *   carries none
+ */
+export function denoteAttachmentName(
+  identifier: string,
+  name: string,
+  fallbackExtension = "",
+): string {
+  const base = name.slice(name.lastIndexOf("/") + 1);
+  if (parseDenoteName(base)?.identifier) {
+    return base;
+  }
+  const split = splitExtension(base);
+  const extension = split.extension || fallbackExtension;
+  const stem = split.extension ? split.stem : base;
+  return formatDenoteName({
+    identifier,
+    // A clipboard image has no name of its own, and a title sluggified away to
+    // nothing is not worth a `--` delimiter. The identifier is a complete
+    // Denote name by itself.
+    title: sluggify("title", stem) || undefined,
+    keywords: [],
+    extension,
+  });
+}
+
 export function denoteExtension(fileType: DenoteFileType): string {
   switch (fileType) {
     case "org":
