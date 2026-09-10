@@ -1130,6 +1130,9 @@ export function editorSyscalls(client: Client): SysCallMapping {
         const { Vim } = vimMod;
         Vim.mapCommand("o", "action", "newline-continue-markup", {}, {});
         Vim.mapCommand("O", "action", "back-newline-continue-markup", {}, {});
+        // `org-return-follows-link`: RET on a link follows it. Off a link it
+        // is still vim's own `<CR>`, which is `j^` — down a line, to its first
+        // non-blank character.
         Vim.unmap("<C-q>", undefined as any);
         Vim.defineAction("newline-continue-markup", (cm) => {
           Vim.handleKey(cm, "A", "+input");

@@ -47,6 +47,7 @@ Org outline motions follow `evil-org`, and folding follows `org-cycle`.
 | `Alt-j` / `Alt-k` | Move item down / up | `org-metadown` / `org-metaup` |
 | `Alt-l` / `Alt-h` | Indent / outdent item | `org-metaright` / `org-metaleft` |
 | `Alt-i` | Insert a link, or edit the one at the cursor | `denote-link-or-create` / `org-insert-link` |
+| `Return` | Follow the link under the cursor (vim normal mode) | `org-return-follows-link` |
 
 `Alt-<letter>` needs a workaround on macOS: Option composes characters (`⌥J`
 arrives as `∆`) and CodeMirror deliberately will not fall back to the base
@@ -139,6 +140,18 @@ reads the cursor:
 `Denote: Toggle Link Display` (`org-toggle-link-display`) turns the rendering
 off for the session, so every link reads as its source — for repairing link
 syntax by hand.
+
+In vim's **normal mode**, `Return` follows the link under the cursor —
+`org-return-follows-link`. Anywhere else it stays vim's own `<CR>`, which is
+`j^`: down a line, to its first non-blank character. Insert mode is unchanged.
+
+Two things make that binding more than a one-liner. Vim swallows every key in
+normal mode, unmapped ones included, so the handler has to sit at
+`Prec.highest` — ahead of vim's keymap — rather than behind it; and a vim-side
+`mapCommand` on `<CR>` never fires, because the built-in `keyToKey` entry for
+it claims the key first. Whether there is a link to follow is therefore decided
+here, synchronously against the syntax tree, so the key can be accepted or
+declined at once.
 
 ## Attachments
 

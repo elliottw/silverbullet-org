@@ -1,3 +1,4 @@
+import type { SyntaxNode } from "@lezer/common";
 import customMarkdownStyle from "../style.ts";
 import { history, insertNewlineAndIndent } from "@codemirror/commands";
 import {
@@ -14,6 +15,7 @@ import {
   LanguageDescription,
   LanguageSupport,
   syntaxHighlighting,
+  syntaxTree,
   unfoldEffect,
 } from "@codemirror/language";
 import {
@@ -37,7 +39,7 @@ import {
 import { deleteMarkupBackward, markdown } from "@codemirror/lang-markdown";
 import { customEnterCommand } from "./markdown_enter.ts";
 import type { Client } from "../client.ts";
-import { loadVim } from "../vim_loader.ts";
+import { getVimModule, loadVim } from "../vim_loader.ts";
 import { inlineContentPlugin } from "./inline_content.ts";
 import { cleanModePlugins } from "./clean.ts";
 import { lineWrapper } from "./line_wrapper.ts";
@@ -530,26 +532,96 @@ function macAltLetterFallback(bindings: KeyBinding[]): Extension {
   );
 }
 
+/** What `actionClickOrActionEnter` in the editor plug will follow. */
+const navigableNodes = [
+  "WikiLink",
+  "DenoteLink",
+  "OrgLink",
+  "Link",
+  "Image",
+  "Autolink",
+  "NakedURL",
+  "Hashtag",
+  "AtMention",
+  "FootnoteRef",
+];
+
+/** Whether the cursor sits on something Enter should follow. */
+function onNavigableNode(view: EditorView): boolean {
+  const pos = view.state.selection.main.from;
+  let node: SyntaxNode | null = syntaxTree(view.state).resolveInner(pos, 1);
+  while (node) {
+    if (navigableNodes.includes(node.name)) {
+      return true;
+    }
+    node = node.parent;
+  }
+  return false;
+}
+
+/**
+ * What Enter does with vim mode on.
+ *
+ * *Insert mode*: break the line. Vim's own Enter does nothing for an ordinary
+ * paragraph — https://github.com/replit/codemirror-vim/issues/182 — so this
+ * stands in for it, which is why the binding exists at all.
+ *
+ * *Normal mode*: `org-return-follows-link`. On a link, follow it; anywhere
+ * else hand the key back (`false`) so vim does what it always does with
+ * `<CR>`, which is `j^` — down a line, to its first non-blank character.
+ *
+ * Whether there is a link has to be answered *here* rather than by mapping
+ * `<CR>` inside vim: this keymap sits ahead of vim's, and a vim `mapCommand`
+ * on `<CR>` never fires because the built-in `keyToKey` entry claims it first.
+ * The check is synchronous against the syntax tree so the key can be accepted
+ * or declined immediately; the navigation itself follows asynchronously.
+ */
+function enterInVimMode(client: Client) {
+  return (view: EditorView): boolean => {
+    const cm = getVimModule()?.getCM(view);
+    const vimState = (cm as any)?.state?.vim;
+    // Unknown state means vim has not initialised yet; breaking the line is
+    // the safer default, since that is what this binding did before.
+    if (!vimState || vimState.insertMode) {
+      return insertNewlineAndIndent(view);
+    }
+    if (!onNavigableNode(view)) {
+      return false;
+    }
+    client.clientSystem.system
+      .invokeFunction("editor.linkNavigate", [])
+      .catch((e: any) =>
+        console.error("Could not follow the link under the cursor", e),
+      );
+    return true;
+  };
+}
+
 export function createRegularKeyBindings(client: Client): Extension {
   if (client.contentManager.isDocumentEditor()) {
     return keymap.of([]);
   } else {
-    return keymap.of([
-      ...createSmartQuoteKeyBindings(client),
-      ...closeBracketsKeymap,
+    return [
+      keymap.of([
+        ...createSmartQuoteKeyBindings(client),
+        ...closeBracketsKeymap,
+      ]),
+      // Ahead of vim's own keymap, which swallows every key in normal mode —
+      // an unmapped one included — so a binding behind it would never run.
       ...(client.ui.viewState.uiOptions.vimMode
         ? [
-            // Workaround for https://github.com/replit/codemirror-vim/issues/182;
-            // without this, Enter does nothing for ordinary paragraphs in insert
-            // mode.
-            {
-              key: "Enter",
-              run: insertNewlineAndIndent,
-              shift: insertNewlineAndIndent,
-            },
+            Prec.highest(
+              keymap.of([
+                {
+                  key: "Enter",
+                  run: enterInVimMode(client),
+                  shift: enterInVimMode(client),
+                },
+              ]),
+            ),
           ]
         : []),
-    ]);
+    ];
   }
 }
 

@@ -183,3 +183,100 @@ test.describe("Vim insertion around a collapsed link", () => {
     });
   }
 });
+
+// `org-return-follows-link`: Return follows the link under the cursor, and is
+// otherwise vim's own `<CR>` — `j^`, down a line to its first non-blank.
+test.describe("Return follows a link in normal mode", () => {
+  const NOTE = "20240125T164237--court-costs__costs.org";
+  test.use({
+    spaceFiles: {
+      "index.md": "# Home\n",
+      "Ret.org": `#+title: Ret
+
+** missions
+- [[denote:20240125T164237][a note]]
+- plain line with no link at all
+`,
+      [NOTE]:
+        "#+title:      Court Costs\n#+identifier: 20240125T164237\n\nBody.\n",
+    },
+  });
+
+  /** Vim mode has to be on when the editor is *built*, as a real session is. */
+  async function vimPage(sbPage: any, sbServer: any) {
+    await gotoSilverBulletPage(sbPage, sbServer, "Ret.org");
+    await expect(sbPage.locator("#sb-editor .cm-content")).toContainText(
+      "a note",
+    );
+    await enableVim(sbPage);
+    await sbPage.waitForTimeout(800);
+    await gotoSilverBulletPage(sbPage, sbServer, "Ret.org");
+    await expect(sbPage.locator(".cm-vim-panel")).toHaveCount(1, {
+      timeout: 10_000,
+    });
+    await sbPage.waitForTimeout(1200);
+  }
+
+  const docOf = (sbPage: any) =>
+    sbPage.evaluate(() =>
+      (globalThis as any).sbRuntime.evalLuaScript("return editor.getText()"),
+    );
+  const cursorOf = (sbPage: any) =>
+    sbPage.evaluate(() =>
+      (globalThis as any).sbRuntime.evalLuaScript("return editor.getCursor()"),
+    );
+
+  async function normalModeAt(sbPage: any, pos: number) {
+    await sbPage.evaluate(
+      (p: number) =>
+        (globalThis as any).sbRuntime.evalLuaScript(`editor.moveCursor(${p})`),
+      pos,
+    );
+    await sbPage.waitForTimeout(400);
+    await sbPage.keyboard.press("Escape");
+    await sbPage.waitForTimeout(300);
+    await expect(sbPage.locator(".cm-vim-panel")).toContainText("NORMAL");
+  }
+
+  test("on a link, Return follows it", async ({ sbPage, sbServer }) => {
+    await vimPage(sbPage, sbServer);
+    const text: string = await docOf(sbPage);
+    await normalModeAt(sbPage, text.indexOf("a note") + 2);
+
+    await sbPage.keyboard.press("Enter");
+    await expect(sbPage.locator("#sb-current-page input.sb-input")).toHaveValue(
+      NOTE,
+      { timeout: 20_000 },
+    );
+  });
+
+  test("off a link, Return is still vim's j^", async ({ sbPage, sbServer }) => {
+    await vimPage(sbPage, sbServer);
+    const text: string = await docOf(sbPage);
+    // On the `** missions` heading; the next line is the bullet below it.
+    await normalModeAt(sbPage, text.indexOf("** missions") + 3);
+
+    await sbPage.keyboard.press("Enter");
+    await sbPage.waitForTimeout(800);
+    // Down a line, to its first non-blank — and no line break inserted.
+    expect(await cursorOf(sbPage)).toEqual(text.indexOf("- [[denote:"));
+    expect(await docOf(sbPage)).toEqual(text);
+  });
+
+  test("in insert mode, Return still breaks the line", async ({
+    sbPage,
+    sbServer,
+  }) => {
+    await vimPage(sbPage, sbServer);
+    const text: string = await docOf(sbPage);
+    await normalModeAt(sbPage, text.indexOf("plain line") + 5);
+
+    await sbPage.keyboard.press("i");
+    await expect(sbPage.locator(".cm-vim-panel")).toContainText("INSERT");
+    await sbPage.keyboard.press("Enter");
+    await sbPage.waitForTimeout(600);
+    expect((await docOf(sbPage)).split("\n").length).toEqual(
+      text.split("\n").length + 1,
+    );
+  });
+});

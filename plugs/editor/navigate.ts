@@ -36,12 +36,19 @@ import type { ClickEvent } from "@silverbulletmd/silverbullet/type/client";
 import { tagPrefix } from "../index/constants.ts";
 import { identityId } from "../index/identity.ts";
 
+/**
+ * Follows whatever is under the cursor, if anything is.
+ *
+ * @returns whether there was something to follow, so a caller that has its own
+ *   fallback — `<CR>` in vim's normal mode, which otherwise moves down a line —
+ *   can tell "followed a link" from "there was no link here".
+ */
 async function actionClickOrActionEnter(
   mdTree: ParseTree | null,
   inNewWindow = false,
-) {
+): Promise<boolean> {
   if (!mdTree) {
-    return;
+    return false;
   }
   const navigationNodeFinder = (t: ParseTree) =>
     [
@@ -59,7 +66,7 @@ async function actionClickOrActionEnter(
   if (!navigationNodeFinder(mdTree)) {
     mdTree = findParentMatching(mdTree, navigationNodeFinder);
     if (!mdTree) {
-      return;
+      return false;
     }
   }
   const currentPage = await editor.getCurrentPage();
@@ -70,10 +77,11 @@ async function actionClickOrActionEnter(
       const ref = parseToRef(link);
 
       if (!ref) {
-        return editor.flashNotification(
+        await editor.flashNotification(
           `Couldn't navigate to ${link}, WikiLink is invalid`,
           "error",
         );
+        return true;
       }
 
       if (ref.path === "" && ref.details?.type !== "anchor") {
@@ -104,7 +112,7 @@ async function actionClickOrActionEnter(
             `“${link}” matches ${resolution.candidates.length} pages. Pick the one to open.`,
           );
           if (!selected) {
-            return;
+            return false;
           }
           ref.path = (selected as unknown as { path: Path }).path;
         } else if (resolution.exists) {
@@ -112,29 +120,33 @@ async function actionClickOrActionEnter(
         }
       }
 
-      return editor.navigate(ref, false, inNewWindow);
+      await editor.navigate(ref, false, inNewWindow);
+      return true;
     }
     // https://example.org
     case "NakedURL":
-      return editor.openUrl(mdTree.children![0].text!);
+      await editor.openUrl(mdTree.children![0].text!);
+      return true;
     // <https://example.org>
     case "Autolink": {
       const urlNode = findNodeOfType(mdTree, "URL");
       if (!urlNode) {
-        return;
+        return false;
       }
 
-      return editor.openUrl(urlNode.children![0].text!);
+      await editor.openUrl(urlNode.children![0].text!);
+      return true;
     }
     case "Image":
     case "Link": {
       const urlNode = findNodeOfType(mdTree, "URL");
       if (!urlNode) {
-        return;
+        return false;
       }
       const url = urlNode.children![0].text!;
       if (url.length <= 1) {
-        return editor.flashNotification("Empty link, ignoring", "error");
+        await editor.flashNotification("Empty link, ignoring", "error");
+        return true;
       }
       if (isLocalURL(url)) {
         const link = resolveMarkdownLink(currentPage, decodeURI(url));
@@ -142,15 +154,18 @@ async function actionClickOrActionEnter(
         const ref = parseToRef(link);
 
         if (!ref) {
-          return editor.flashNotification(
+          await editor.flashNotification(
             `Couldn't navigate to ${link}, Link is invalid`,
             "error",
           );
+          return true;
         }
 
-        return editor.navigate(ref);
+        await editor.navigate(ref);
+        return true;
       } else {
-        return editor.openUrl(url);
+        await editor.openUrl(url);
+        return true;
       }
     }
     case "DenoteLink": {
@@ -273,16 +288,17 @@ async function actionClickOrActionEnter(
       break;
     }
   }
+  return true;
 }
 
-export async function linkNavigate() {
+export async function linkNavigate(): Promise<boolean> {
   const mdTree = await markdown.parsePage(
     await editor.getCurrentPath(),
     await editor.getText(),
   );
   const newNode = nodeAtPos(mdTree, await editor.getCursor());
   addParentPointers(mdTree);
-  await actionClickOrActionEnter(newNode);
+  return await actionClickOrActionEnter(newNode);
 }
 
 export async function clickNavigate(event: ClickEvent) {
