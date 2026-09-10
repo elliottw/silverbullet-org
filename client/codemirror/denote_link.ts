@@ -1,7 +1,9 @@
 import { syntaxTree } from "@codemirror/language";
+import type { SyntaxNode } from "@lezer/common";
 import {
   EditorSelection,
   EditorState,
+  Prec,
   type Extension,
   StateEffect,
   StateField,
@@ -19,6 +21,8 @@ import { orgInlineMedia } from "./org_image.ts";
 import { encodePageURI } from "@silverbulletmd/silverbullet/lib/ref";
 import type { PageMeta } from "@silverbulletmd/silverbullet/type/index";
 import type { Client } from "../client.ts";
+import { getVimModule } from "../vim_loader.ts";
+import { keymap } from "@codemirror/view";
 import { decoratorStateField, isCursorInRange, LinkWidget } from "./util.ts";
 
 /**
@@ -69,6 +73,63 @@ class HiddenMarkWidget extends WidgetType {
   override eq(): boolean {
     return true;
   }
+}
+
+/**
+ * Backspace and Delete against a collapsed link's hidden machinery.
+ *
+ * The machinery is atomic, so one keypress takes the whole `[[…][` or `]]` —
+ * and leaves `clinical affairs]]` behind, a link broken in a way nothing on
+ * screen asked for. A collapsed link reads as one object, so it is deleted as
+ * one: the whole `[[target][description]]` goes.
+ *
+ * Only when the key would actually land on hidden machinery. Everywhere else,
+ * including inside the description, this declines and ordinary deletion
+ * happens. In vim's normal mode it always declines — Backspace is `h` there,
+ * a motion rather than an edit.
+ */
+function deleteCollapsedLink(
+  view: EditorView,
+  field: StateField<DecorationSet>,
+  forward: boolean,
+): boolean {
+  const vimState = (getVimModule()?.getCM(view) as any)?.state?.vim;
+  if (vimState && !vimState.insertMode) {
+    return false;
+  }
+  const range = view.state.selection.main;
+  if (!range.empty) {
+    return false;
+  }
+  const probe = forward ? range.head : range.head - 1;
+  if (probe < 0 || probe >= view.state.doc.length) {
+    return false;
+  }
+  let hidden: { from: number; to: number } | undefined;
+  view.state.field(field).between(probe, probe + 1, (from, to, value) => {
+    if (value === hiddenMark && probe >= from && probe < to) {
+      hidden = { from, to };
+    }
+  });
+  if (!hidden) {
+    return false;
+  }
+  // Grow the hidden run back out to the link it belongs to.
+  let node: SyntaxNode | null = syntaxTree(view.state).resolveInner(
+    hidden.from + 1,
+    1,
+  );
+  while (node && node.name !== "DenoteLink" && node.name !== "OrgLink") {
+    node = node.parent;
+  }
+  const from = node ? node.from : hidden.from;
+  const to = node ? node.to : hidden.to;
+  view.dispatch({
+    changes: { from, to, insert: "" },
+    selection: EditorSelection.cursor(from),
+    userEvent: "delete.link",
+  });
+  return true;
 }
 
 /**
@@ -332,6 +393,18 @@ export function denoteLinkPlugin(client: Client): Extension {
     // one character at a time — invisible, except that the block cursor then
     // painted the character it was standing on (`[`, `d`, `e`) over the
     // description. This filter catches the selection whatever produced it.
+    Prec.highest(
+      keymap.of([
+        {
+          key: "Backspace",
+          run: (view) => deleteCollapsedLink(view, decorations, false),
+        },
+        {
+          key: "Delete",
+          run: (view) => deleteCollapsedLink(view, decorations, true),
+        },
+      ]),
+    ),
     EditorState.transactionFilter.of((tr) => {
       if (!tr.selection || tr.docChanged) {
         return tr;
