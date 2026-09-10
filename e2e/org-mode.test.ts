@@ -282,19 +282,30 @@ A bare [[https://example.com/naked]] link.
     expect(sbPage.url()).toContain("Links.org");
   });
 
-  test("putting the cursor on it shows the source again", async ({
+  test("the cursor on it does not show the source — a command does", async ({
     sbPage,
     sbServer,
   }) => {
     await gotoSilverBulletPage(sbPage, sbServer, "Links.org");
     const editor = sbPage.locator("#sb-editor .cm-content");
     await expect(editor).toContainText("in a sentence");
+    // Alt-click puts the cursor in the link. A described link keeps reading as
+    // its description even then — `org-link-descriptive` — so the URL stays
+    // out of the prose.
     await sbPage
       .locator("a.sb-org-external-link")
       .first()
-      .click({
-        modifiers: ["Alt"],
-      });
+      .click({ modifiers: ["Alt"] });
+    await expect(editor).not.toContainText(
+      "https://example.com/some/long/path",
+    );
+
+    // `org-toggle-link-display` is how the source is read back.
+    await sbPage.evaluate(() =>
+      (globalThis as any).sbRuntime.evalLuaScript(
+        'editor.invokeCommand("Denote: Toggle Link Display")',
+      ),
+    );
     await expect(editor).toContainText("[[https://example.com/some/long/path]");
   });
 });

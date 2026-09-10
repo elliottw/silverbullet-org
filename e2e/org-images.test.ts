@@ -131,19 +131,16 @@ test.describe("Dropping a file into an Org page", () => {
       );
     }, IMAGE);
 
-    // It asks where to put the file, as it does for a paste.
-    const prompt = sbPage
-      .locator(".sb-modal-box input, .sb-modal input")
-      .first();
-    await expect(prompt).toBeVisible({ timeout: 20_000 });
-    await prompt.press("Enter");
+    // No prompt: the file is named for us, Denote-style, from the name it
+    // arrived under.
     await sbPage.waitForTimeout(2500);
 
     const text = await sbPage.evaluate(() =>
       (globalThis as any).sbRuntime.evalLuaScript("return editor.getText()"),
     );
-    // Org syntax, not Markdown's `![[...]]`.
-    expect(text).toContain("[[file:dropped.png]]");
+    // Org syntax, not Markdown's `![[...]]`, and an identifier before the
+    // title taken from `dropped.png`.
+    expect(text).toMatch(/\[\[file:\d{8}T\d{6}--dropped\.png\]\]/);
     expect(text).not.toContain("![[");
 
     // Move off the link: like every live-preview decoration, the source shows
@@ -211,18 +208,14 @@ test.describe("Pasting into an Org page", () => {
     await expect(editor).toContainText("Before.");
     await pasteImage(sbPage);
 
-    // It asks where to put the file, as it does for a drop.
-    const prompt = sbPage
-      .locator(".sb-modal-box input, .sb-modal input")
-      .first();
-    await expect(prompt).toBeVisible({ timeout: 20_000 });
-    await prompt.press("Enter");
+    // No prompt: a clipboard image has no name of its own, so the Denote
+    // identifier names it outright.
     await sbPage.waitForTimeout(2500);
 
     const text = await sbPage.evaluate(() =>
       (globalThis as any).sbRuntime.evalLuaScript("return editor.getText()"),
     );
-    expect(text).toContain("[[file:");
+    expect(text).toMatch(/\[\[file:\d{8}T\d{6}\.png\]\]/);
     // Not Markdown, and not a link to where the image came from.
     expect(text).not.toContain("![](");
     expect(text).not.toContain("example.com");

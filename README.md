@@ -115,11 +115,20 @@ A link to somewhere outside the space carries an **↗**, because otherwise
 nothing distinguishes it from a link to another note. The arrow is drawn in
 CSS, so it never lands in a selection or in copied text.
 
-Putting the cursor on a link shows its source, as every live-preview
-decoration does. Clicking an external link opens it in a new tab.
+A **described** link keeps reading as its description with the cursor on it,
+which is `org-link-descriptive` and unlike every other live-preview decoration
+here. Only the machinery is hidden: the description underneath stays real,
+editable text, so the cursor has somewhere to land and the arrow keys step over
+the `[[…][` and `]]` rather than through them. Clicking an external link opens
+it in a new tab.
 
-Editing a link is still a command, the way `org-insert-link` is. `Alt-i` reads
-the cursor:
+A link with no description *yet* is the one being typed, and shows its source —
+auto-close turns `[[` into a complete but empty link node straight away, and
+there is nothing to draw in its place. That is also what keeps the inline `[[`
+completion usable.
+
+Which is why editing a link is a command, the way `org-insert-link` is. `Alt-i`
+reads the cursor:
 
 * **On a link** it is `org-insert-link` — the target and the description, both
   offered as they stand. Emptying the target unlinks, leaving the words behind.
@@ -131,13 +140,6 @@ the cursor:
 `Denote: Toggle Link Display` (`org-toggle-link-display`) turns the rendering
 off for the session, so every link reads as its source — for repairing link
 syntax by hand.
-
-**Not** Emacs, deliberately: Org keeps a link collapsed even with point inside
-it. Doing the same here was tried and reverted. SilverBullet's inline `[[`
-completion types *into* a link — auto-close makes `[[` a complete, empty link
-node immediately — so a link that collapsed with the cursor in it hid the text
-being typed and took the completion down with it. The e2e suite is explicit
-about this; see the note in `client/codemirror/denote_link.ts`.
 
 ## Attachments
 

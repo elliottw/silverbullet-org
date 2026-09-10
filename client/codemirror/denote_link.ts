@@ -5,11 +5,7 @@ import {
   StateField,
   type Transaction,
 } from "@codemirror/state";
-import {
-  Decoration,
-  type DecorationSet,
-  type EditorView,
-} from "@codemirror/view";
+import { Decoration, type DecorationSet, EditorView } from "@codemirror/view";
 import { parseDenoteName } from "@silverbulletmd/silverbullet/lib/denote";
 import { hasLinkScheme } from "@silverbulletmd/silverbullet/lib/link_syntax";
 import { orgInlineMedia } from "./org_image.ts";
@@ -86,15 +82,20 @@ export function denoteLinkPlugin(client: Client): Extension {
         if (!descriptive) {
           return;
         }
-        // Editing a link shows its source, as every other live-preview
-        // decoration does.
+        // A *described* link keeps reading as its description with the cursor
+        // on it — `org-link-descriptive`. Only the machinery is hidden, so the
+        // description underneath stays real, editable document text and the
+        // cursor has somewhere to be; `Alt-i` edits the target.
         //
-        // Collapsing it even with the cursor on it — `org-link-descriptive`,
-        // which is what Emacs does — was tried and reverted: SilverBullet's
-        // inline `[[` completion types *into* a link that auto-close has
-        // already closed, so a collapsed one hid the text going into it and
-        // took the completion down with it.
-        if (isCursorInRange(state, [from, to])) {
+        // A link with no description yet is the one being typed: auto-close
+        // turns `[[` into a complete but empty link node straight away, and
+        // there is no description to show in its place, so it shows its source
+        // as every other live-preview decoration does. That is also what keeps
+        // the inline `[[` completion usable.
+        const describedFrom = node.getChild("OrgLinkDescription");
+        const described =
+          !!describedFrom && describedFrom.to > describedFrom.from;
+        if (!described && isCursorInRange(state, [from, to])) {
           return;
         }
         const targetNode = node.getChild(
@@ -116,11 +117,8 @@ export function denoteLinkPlugin(client: Client): Extension {
           // selection and copy behave normally, which is how Markdown links
           // are drawn too. The `sb-org-external-link` class carries the
           // indicator, in CSS so it never lands in copied text.
-          const descriptionNode = node.getChild("OrgLinkDescription");
-          const textFrom = descriptionNode
-            ? descriptionNode.from
-            : targetNode.from;
-          const textTo = descriptionNode ? descriptionNode.to : targetNode.to;
+          const textFrom = described ? describedFrom!.from : targetNode.from;
+          const textTo = described ? describedFrom!.to : targetNode.to;
           if (textTo === textFrom) {
             // Nothing to show; leave the source visible rather than vanish.
             return;
@@ -149,9 +147,8 @@ export function denoteLinkPlugin(client: Client): Extension {
         }
         const identifier = match ? match[1] : "";
         const heading = match ? match[2] : undefined;
-        const descriptionNode = node.getChild("OrgLinkDescription");
-        const description = descriptionNode
-          ? state.sliceDoc(descriptionNode.from, descriptionNode.to)
+        const description = described
+          ? state.sliceDoc(describedFrom!.from, describedFrom!.to)
           : "";
 
         // A Denote link resolves by identifier; a bare Org link names a page.
@@ -171,20 +168,50 @@ export function denoteLinkPlugin(client: Client): Extension {
           page?.name ||
           target;
 
+        const title = page
+          ? `Navigate to ${page.name}`
+          : isDenote
+            ? `No note with identifier ${identifier}`
+            : `Page not found: ${target}`;
+        const cssClass = page
+          ? "sb-wiki-link sb-denote-link"
+          : "sb-wiki-link sb-denote-link sb-wiki-link-page-missing";
+
+        // A described link hides only its machinery and marks the description,
+        // exactly as the external branch above does. That is what lets it stay
+        // collapsed with the cursor on it: the words remain real text, so the
+        // cursor has somewhere to land and nothing has to be revealed. The
+        // hidden `[[…][` and `]]` are made atomic below so arrow keys step
+        // over them rather than through them, invisibly.
+        if (described) {
+          widgets.push(invisibleDecoration.range(from, describedFrom!.from));
+          widgets.push(
+            Decoration.mark({
+              tagName: "a",
+              class: cssClass,
+              attributes: {
+                title,
+                // What the link addresses, not what it resolved to: the click
+                // handler resolves for itself, so a link written to a note
+                // that only just appeared still follows.
+                "data-link-target": target,
+                ...(heading ? { "data-link-header": heading } : {}),
+                ...(isDenote ? { "data-link-denote": "1" } : {}),
+              },
+            }).range(describedFrom!.from, describedFrom!.to),
+          );
+          widgets.push(invisibleDecoration.range(describedFrom!.to, to));
+          return;
+        }
+
         widgets.push(
           Decoration.replace({
             widget: new LinkWidget({
               from,
               text,
-              title: page
-                ? `Navigate to ${page.name}`
-                : isDenote
-                  ? `No note with identifier ${identifier}`
-                  : `Page not found: ${target}`,
+              title,
               href: page ? encodePageURI(page.name) : undefined,
-              cssClass: page
-                ? "sb-wiki-link sb-denote-link"
-                : "sb-wiki-link sb-denote-link sb-wiki-link-page-missing",
+              cssClass,
               callback: (e) => {
                 if (!page && isDenote) {
                   // A Denote link names an identifier. There is nothing to
@@ -231,5 +258,106 @@ export function denoteLinkPlugin(client: Client): Extension {
     });
     return Decoration.set(widgets, true);
   });
-  return [denoteLinkDisplay, decorations];
+  return [
+    denoteLinkDisplay,
+    decorations,
+    // The hidden `[[…][` and `]]` of a described link. Without this an arrow
+    // key would step through them one invisible character at a time, with
+    // nothing moving on screen; with it the cursor steps from the text before
+    // a link straight to its description, the way point moves over invisible
+    // text in Org. Only the machinery is atomic — the description itself stays
+    // ordinary text you can select, edit and put the cursor inside.
+    EditorView.atomicRanges.of((view) =>
+      view.state.field(decorations).update({
+        filter: (_from, _to, value) => value === invisibleDecoration,
+      }),
+    ),
+    linkClickHandler(client),
+  ];
+}
+
+/**
+ * Follows a described link, which is marked text rather than a widget and so
+ * carries no click listener of its own.
+ *
+ * The listener sits on the editor and reads what the mark left in its data
+ * attributes. A description-less link is a `LinkWidget`, which handles its own
+ * click and stops propagation, so it never reaches here.
+ */
+function linkClickHandler(client: Client): Extension {
+  return EditorView.domEventHandlers({
+    click: (event) => {
+      // Alt-click is for putting the cursor in the link, as it is on a widget.
+      if (event.button !== 0 || event.altKey) {
+        return false;
+      }
+      const anchor = (event.target as HTMLElement | null)?.closest?.(
+        "a.sb-denote-link",
+      ) as HTMLElement | null;
+      if (!anchor) {
+        return false;
+      }
+      const { linkHeader, linkDenote, linkTarget } = anchor.dataset;
+      if (!linkTarget) {
+        return false;
+      }
+      event.preventDefault();
+      const newTab = event.ctrlKey || event.metaKey;
+      const identifier = linkDenote
+        ? denoteTargetRegex.exec(linkTarget)?.[1]
+        : undefined;
+      const resolve = (pages: PageMeta[]) =>
+        linkDenote
+          ? identifier
+            ? resolveDenoteIdentifier(pages, identifier)
+            : undefined
+          : (pages.find((p) => p.name === linkTarget) ??
+            pages.find((p) => p.name === `${linkTarget}.org`));
+
+      void (async () => {
+        // Resolved at click time rather than at render time, and from the
+        // server when the cached list comes up short: a note written by
+        // `denote-link-or-create` moments ago is on disk before the page list
+        // hears about it, and a link to it must still follow.
+        let page = resolve(client.ui.viewState.allPages);
+        if (!page) {
+          try {
+            page = resolve(await client.space.fetchPageList());
+          } catch (error) {
+            console.error("Could not refresh the page list", error);
+          }
+        }
+        if (page) {
+          await client.navigate(
+            {
+              path: page.name as `${string}.${string}`,
+              ...(linkHeader
+                ? { details: { type: "header" as const, header: linkHeader } }
+                : {}),
+            },
+            false,
+            newTab,
+          );
+          return;
+        }
+        // A Denote link names an identifier, and there is nothing to create
+        // for one no note carries -- the identifier *is* the note's identity,
+        // minted when the file is. A bare Org link names a page, so it is
+        // followed and the page created, as it is from the widget.
+        if (linkDenote) {
+          client.ui.flashNotification(
+            `No note with identifier ${identifier ?? linkTarget}`,
+            "error",
+          );
+          return;
+        }
+        await client.navigate(
+          { path: `${linkTarget}.org` as `${string}.${string}` },
+          false,
+          newTab,
+        );
+      })();
+      return true;
+    },
+  });
 }

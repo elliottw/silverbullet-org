@@ -167,7 +167,12 @@ test.describe("Denote link authoring", () => {
     await sbPage.keyboard.press("Enter");
     await sbPage.waitForTimeout(700);
 
-    const text = await editor.innerText();
+    // A described link is drawn as its description, so the source is read
+    // from the document rather than the screen.
+    await expect(editor).toContainText("Court Costs Relating to Evictions");
+    const text = await sbPage.evaluate(() =>
+      (globalThis as any).sbRuntime.evalLuaScript("return editor.getText()"),
+    );
     // The identifier, not the file name — and the title as the description,
     // which is what Denote's own `denote-link` inserts.
     expect(text).toContain(
