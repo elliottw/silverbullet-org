@@ -54,6 +54,13 @@ class HiddenMarkWidget extends WidgetType {
     const span = document.createElement("span");
     span.className = "sb-hidden-mark";
     span.setAttribute("aria-hidden", "true");
+    // A zero-width space, not an empty element. Firefox reads the caret back
+    // out of the DOM, and it will not sit in an empty inline element: at the
+    // end of a line ending in a link it normalised into the description
+    // instead, which is one position *before* the hidden `]]`. Vim's `A` then
+    // appended inside the link. The character gives the caret somewhere to be.
+    // It is widget DOM rather than document text, so it is never copied.
+    span.textContent = "\u200b";
     return span;
   }
 

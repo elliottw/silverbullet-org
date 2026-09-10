@@ -103,25 +103,52 @@ test.describe("Vim insertion around a collapsed link", () => {
   test.use({
     spaceFiles: {
       "index.md": "# Home\n",
-      "Links.org": `#+title: Links
+      "Links.org": `#+title:      Links
+#+date:       [0000-00-00 00:00]
+#+identifier: 00000000T000000
 
-Ends in [[https://example.com][a link]]
-Note end [[denote:20240125T164237][a note]]
-Mid line [[https://example.com][a link]] and more.
+** missions
+
+- [[denote:20260819T162106][upmc community paramedic]]
+- [[https://example.com][an external one]]
+- 
+** quick reference 
+- [[denote:20240124T104100][mitfcu]]
+- Mid line [[https://example.com][a link]] and more.
+
+* Recently modified
+\${query[[
+  from p = index.contentPages()
+  order by p.lastModified desc
+  limit 10
+  select templates.fullPageItem(p)
+]]}
+
+* Notes needing attention
+\${some(query[[
+  from t = index.tasks()
+  where not t.done
+  order by t.pageLastModified desc
+  limit 10
+  select templates.taskItem(t)
+]]) or "_Nothing outstanding._"}
 `,
     },
   });
 
-  for (const lead of ["Ends in", "Note end", "Mid line"]) {
+  for (const lead of ["- [[denote:20260819", "- [[https://", "- Mid line"]) {
     test(`A appends past the hidden ]] — ${lead}`, async ({
       sbPage,
       sbServer,
     }) => {
       await gotoSilverBulletPage(sbPage, sbServer, "Links.org");
       await expect(sbPage.locator("#sb-editor .cm-content")).toContainText(
-        "Ends in",
+        "upmc community paramedic",
       );
       await enableVim(sbPage);
+      // Let the page settle: the query block renders as a widget, and the
+      // line geometry this bug depends on is not final until it has.
+      await sbPage.waitForTimeout(1500);
 
       const read = () =>
         sbPage.evaluate(() =>
@@ -131,20 +158,19 @@ Mid line [[https://example.com][a link]] and more.
         );
       const text: string = await read();
       const lineStart = text.indexOf(lead);
-      // Start from inside the link's description, where the hidden brackets
-      // are on both sides of the cursor.
-      const inDescription = text.indexOf("][", lineStart) + 4;
 
+      // From the very start of the line, which is how this was first hit: a
+      // bullet whose link runs to the end of the line.
       await sbPage.evaluate(
         (p: number) =>
           (globalThis as any).sbRuntime.evalLuaScript(
             `editor.moveCursor(${p})`,
           ),
-        inDescription,
+        lineStart,
       );
-      await sbPage.waitForTimeout(300);
+      await sbPage.waitForTimeout(500);
       await sbPage.keyboard.press("Escape");
-      await sbPage.waitForTimeout(250);
+      await sbPage.waitForTimeout(300);
       await sbPage.keyboard.press("Shift+A");
       await sbPage.waitForTimeout(300);
       await sbPage.keyboard.type("XX");
