@@ -280,3 +280,81 @@ test.describe("Return follows a link in normal mode", () => {
     );
   });
 });
+
+// Vim works out its own positions and ignores `EditorView.atomicRanges`, so
+// `l` used to walk into a collapsed link's hidden `[[denote:…][` one character
+// at a time — invisible, except that the block cursor painted the character it
+// stood on over the description.
+test.describe("Motion over a collapsed link", () => {
+  test.use({
+    spaceFiles: {
+      "index.md": "# Home\n",
+      "Walk.org": `#+title: Walk
+
+** missions
+- [[denote:20240125T164237][clinical affairs onboarding]] tail words
+`,
+      "20240125T164237--court-costs__costs.org":
+        "#+title:      Court Costs\n#+identifier: 20240125T164237\n\nBody.\n",
+    },
+  });
+
+  for (const [label, key, count] of [
+    ["l", "l", 12],
+    ["h", "h", 12],
+  ] as const) {
+    test(`${label} steps over the machinery, never into it`, async ({
+      sbPage,
+      sbServer,
+    }) => {
+      await gotoSilverBulletPage(sbPage, sbServer, "Walk.org");
+      await expect(sbPage.locator("#sb-editor .cm-content")).toContainText(
+        "clinical affairs",
+      );
+      await enableVim(sbPage);
+      await sbPage.waitForTimeout(600);
+      await gotoSilverBulletPage(sbPage, sbServer, "Walk.org");
+      await expect(sbPage.locator(".cm-vim-panel")).toHaveCount(1, {
+        timeout: 10_000,
+      });
+      await sbPage.waitForTimeout(1200);
+
+      const text: string = await sbPage.evaluate(() =>
+        (globalThis as any).sbRuntime.evalLuaScript("return editor.getText()"),
+      );
+      const linkFrom = text.indexOf("[[denote:");
+      const descFrom = text.indexOf("][", linkFrom) + 2;
+      const descTo = text.indexOf("]]", descFrom);
+      const linkTo = descTo + 2;
+      // `l` walks in from the bullet, `h` back from the words after the link.
+      const start = key === "l" ? text.indexOf("- [[denote:") : linkTo + 5;
+
+      await sbPage.evaluate(
+        (p: number) =>
+          (globalThis as any).sbRuntime.evalLuaScript(
+            `editor.moveCursor(${p})`,
+          ),
+        start,
+      );
+      await sbPage.waitForTimeout(400);
+      await sbPage.keyboard.press("Escape");
+      await sbPage.waitForTimeout(300);
+
+      const seen: number[] = [];
+      for (let i = 0; i < count; i++) {
+        await sbPage.keyboard.press(key);
+        await sbPage.waitForTimeout(90);
+        seen.push(
+          await sbPage.evaluate(() =>
+            (globalThis as any).sbRuntime.evalLuaScript(
+              "return editor.getCursor()",
+            ),
+          ),
+        );
+      }
+      // The edges are fine to sit on; strictly inside is not.
+      expect(seen.filter((p) => p > linkFrom && p < descFrom)).toEqual([]);
+      expect(seen.filter((p) => p > descTo && p < linkTo)).toEqual([]);
+    });
+  }
+});

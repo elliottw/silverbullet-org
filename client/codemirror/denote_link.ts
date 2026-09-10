@@ -1,5 +1,7 @@
 import { syntaxTree } from "@codemirror/language";
 import {
+  EditorSelection,
+  EditorState,
   type Extension,
   StateEffect,
   StateField,
@@ -66,6 +68,30 @@ class HiddenMarkWidget extends WidgetType {
 
   override eq(): boolean {
     return true;
+  }
+}
+
+/**
+ * Moves `pos` out of any hidden machinery it has landed inside, travelling in
+ * the direction it was already going.
+ */
+function outOfHiddenMark(
+  hidden: DecorationSet,
+  pos: number,
+  bias: number,
+): number {
+  for (;;) {
+    let moved = false;
+    hidden.between(pos - 1, pos + 1, (from, to, value) => {
+      // Strictly inside: the edges are legitimate places to be.
+      if (value === hiddenMark && pos > from && pos < to) {
+        pos = bias < 0 ? from : to;
+        moved = true;
+      }
+    });
+    if (!moved) {
+      return pos;
+    }
   }
 }
 
@@ -301,6 +327,37 @@ export function denoteLinkPlugin(client: Client): Extension {
     // a link straight to its description, the way point moves over invisible
     // text in Org. Only the machinery is atomic — the description itself stays
     // ordinary text you can select, edit and put the cursor inside.
+    // `atomicRanges` only governs CodeMirror's own motion commands. Vim works
+    // out its positions itself, so `l` walked into the hidden `[[denote:…][`
+    // one character at a time — invisible, except that the block cursor then
+    // painted the character it was standing on (`[`, `d`, `e`) over the
+    // description. This filter catches the selection whatever produced it.
+    EditorState.transactionFilter.of((tr) => {
+      if (!tr.selection || tr.docChanged) {
+        return tr;
+      }
+      const hidden = tr.startState.field(decorations);
+      const was = tr.startState.selection.main.head;
+      let changed = false;
+      const ranges = tr.selection.ranges.map((range) => {
+        // A selection that spans a link is deliberate; only a bare cursor is
+        // nudged out.
+        if (!range.empty) {
+          return range;
+        }
+        const head = outOfHiddenMark(
+          hidden,
+          range.head,
+          range.head < was ? -1 : 1,
+        );
+        if (head === range.head) {
+          return range;
+        }
+        changed = true;
+        return EditorSelection.cursor(head);
+      });
+      return changed ? [tr, { selection: EditorSelection.create(ranges) }] : tr;
+    }),
     EditorView.atomicRanges.of((view) =>
       view.state.field(decorations).update({
         filter: (_from, _to, value) => value === hiddenMark,
