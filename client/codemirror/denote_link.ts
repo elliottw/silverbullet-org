@@ -5,19 +5,19 @@ import {
   StateField,
   type Transaction,
 } from "@codemirror/state";
-import { Decoration, type DecorationSet, EditorView } from "@codemirror/view";
+import {
+  Decoration,
+  type DecorationSet,
+  EditorView,
+  WidgetType,
+} from "@codemirror/view";
 import { parseDenoteName } from "@silverbulletmd/silverbullet/lib/denote";
 import { hasLinkScheme } from "@silverbulletmd/silverbullet/lib/link_syntax";
 import { orgInlineMedia } from "./org_image.ts";
 import { encodePageURI } from "@silverbulletmd/silverbullet/lib/ref";
 import type { PageMeta } from "@silverbulletmd/silverbullet/type/index";
 import type { Client } from "../client.ts";
-import {
-  decoratorStateField,
-  invisibleDecoration,
-  isCursorInRange,
-  LinkWidget,
-} from "./util.ts";
+import { decoratorStateField, isCursorInRange, LinkWidget } from "./util.ts";
 
 /**
  * Resolves a Denote identifier to a page, using the client's page list.
@@ -37,6 +37,33 @@ export function resolveDenoteIdentifier(
 }
 
 const denoteTargetRegex = /^denote:([^:\s]+)(?:::(.*))?$/;
+
+/**
+ * An empty element standing in for hidden link machinery.
+ *
+ * `Decoration.replace({})` renders *nothing* — no DOM node at all. That is
+ * fine while something else follows on the line, but when the hidden `]]`
+ * ends the line there is no node after the link for the caret to attach to,
+ * so a typed character goes into the nearest text node — the description —
+ * and lands inside the link. Everything else in SilverBullet sidesteps this
+ * by revealing its markup under the cursor; a described link deliberately
+ * does not, so it needs the anchor.
+ */
+class HiddenMarkWidget extends WidgetType {
+  toDOM(): HTMLElement {
+    const span = document.createElement("span");
+    span.className = "sb-hidden-mark";
+    span.setAttribute("aria-hidden", "true");
+    return span;
+  }
+
+  override eq(): boolean {
+    return true;
+  }
+}
+
+/** Hides a range, leaving a DOM anchor behind — see `HiddenMarkWidget`. */
+const hiddenMark = Decoration.replace({ widget: new HiddenMarkWidget() });
 
 const toggleLinkDisplayEffect = StateEffect.define<void>();
 
@@ -123,7 +150,7 @@ export function denoteLinkPlugin(client: Client): Extension {
             // Nothing to show; leave the source visible rather than vanish.
             return;
           }
-          widgets.push(invisibleDecoration.range(from, textFrom));
+          widgets.push(hiddenMark.range(from, textFrom));
           widgets.push(
             Decoration.mark({
               tagName: "a",
@@ -131,7 +158,7 @@ export function denoteLinkPlugin(client: Client): Extension {
               attributes: { href: target, title: `Click to visit ${target}` },
             }).range(textFrom, textTo),
           );
-          widgets.push(invisibleDecoration.range(textTo, to));
+          widgets.push(hiddenMark.range(textTo, to));
           return;
         }
         // An image belongs to the inline-image plugin; two replacements over
@@ -184,7 +211,7 @@ export function denoteLinkPlugin(client: Client): Extension {
         // hidden `[[…][` and `]]` are made atomic below so arrow keys step
         // over them rather than through them, invisibly.
         if (described) {
-          widgets.push(invisibleDecoration.range(from, describedFrom!.from));
+          widgets.push(hiddenMark.range(from, describedFrom!.from));
           widgets.push(
             Decoration.mark({
               tagName: "a",
@@ -200,7 +227,7 @@ export function denoteLinkPlugin(client: Client): Extension {
               },
             }).range(describedFrom!.from, describedFrom!.to),
           );
-          widgets.push(invisibleDecoration.range(describedFrom!.to, to));
+          widgets.push(hiddenMark.range(describedFrom!.to, to));
           return;
         }
 
@@ -269,7 +296,7 @@ export function denoteLinkPlugin(client: Client): Extension {
     // ordinary text you can select, edit and put the cursor inside.
     EditorView.atomicRanges.of((view) =>
       view.state.field(decorations).update({
-        filter: (_from, _to, value) => value === invisibleDecoration,
+        filter: (_from, _to, value) => value === hiddenMark,
       }),
     ),
     linkClickHandler(client),

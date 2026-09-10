@@ -95,3 +95,65 @@ test.describe("Vim block cursor", () => {
     expect(paint.filled || paint.outlined, "visible when unfocused").toBe(true);
   });
 });
+
+// A described link stays collapsed with the cursor on it, so its `[[…][` and
+// `]]` are hidden while being edited around — which is exactly when an
+// insertion can land on the wrong side of them.
+test.describe("Vim insertion around a collapsed link", () => {
+  test.use({
+    spaceFiles: {
+      "index.md": "# Home\n",
+      "Links.org": `#+title: Links
+
+Ends in [[https://example.com][a link]]
+Note end [[denote:20240125T164237][a note]]
+Mid line [[https://example.com][a link]] and more.
+`,
+    },
+  });
+
+  for (const lead of ["Ends in", "Note end", "Mid line"]) {
+    test(`A appends past the hidden ]] — ${lead}`, async ({
+      sbPage,
+      sbServer,
+    }) => {
+      await gotoSilverBulletPage(sbPage, sbServer, "Links.org");
+      await expect(sbPage.locator("#sb-editor .cm-content")).toContainText(
+        "Ends in",
+      );
+      await enableVim(sbPage);
+
+      const read = () =>
+        sbPage.evaluate(() =>
+          (globalThis as any).sbRuntime.evalLuaScript(
+            "return editor.getText()",
+          ),
+        );
+      const text: string = await read();
+      const lineStart = text.indexOf(lead);
+      // Start from inside the link's description, where the hidden brackets
+      // are on both sides of the cursor.
+      const inDescription = text.indexOf("][", lineStart) + 4;
+
+      await sbPage.evaluate(
+        (p: number) =>
+          (globalThis as any).sbRuntime.evalLuaScript(
+            `editor.moveCursor(${p})`,
+          ),
+        inDescription,
+      );
+      await sbPage.waitForTimeout(300);
+      await sbPage.keyboard.press("Escape");
+      await sbPage.waitForTimeout(250);
+      await sbPage.keyboard.press("Shift+A");
+      await sbPage.waitForTimeout(300);
+      await sbPage.keyboard.type("XX");
+      await sbPage.waitForTimeout(400);
+
+      const line = (await read()).split("\n").find((l) => l.startsWith(lead));
+      // Appended at the end of the line, not tucked inside the link.
+      expect(line).not.toContain("XX]]");
+      expect(line?.endsWith("XX")).toBe(true);
+    });
+  }
+});
