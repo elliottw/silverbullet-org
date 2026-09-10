@@ -224,7 +224,7 @@ A bare [[https://example.com/naked]] link.
     },
   });
 
-  test("an external link reads as its description, with an indicator", async ({
+  test("an external link reads as its description", async ({
     sbPage,
     sbServer,
   }) => {
@@ -241,12 +241,13 @@ A bare [[https://example.com/naked]] link.
     );
     await expect(editor).not.toContainText("some/long/path");
 
-    // The indicator is CSS, so it is not part of the text -- it must not turn
-    // up in the link's textContent, or it would land in copied text.
+    // No indicator: a link to another note carries a background tint that an
+    // external one does not, which is distinction enough. Nothing decorative
+    // is appended, so nothing decorative can land in copied text.
     const after = await link.evaluate(
       (el) => globalThis.getComputedStyle(el, "::after").content,
     );
-    expect(after).toContain("↗");
+    expect(["none", "normal", ""]).toContain(after);
   });
 
   test("a description-less external link shows its URL", async ({

@@ -3,7 +3,9 @@
 html {
   --ui-accent-text-color: var(--ui-accent-color);
   --highlight-color: rgba(255, 255, 0, 0.5);
-  --link-color: #0330cb;
+  // `fg-link` from modus-operandi, overridden to `red-faint` in Elliott's
+  // Emacs config -- the same red the notes are read in there.
+  --link-color: #7f0000;
   --link-missing-color: #9e4705;
   --link-invalid-color: #bb08e7;
   --meta-color: #650007;
@@ -160,11 +162,16 @@ html {
   --editor-panels-bottom-button-active-background-image: linear-gradient(#b4b4b4,
       #d0d3d6);
 
+  // iA Writer Mono everywhere, as in Emacs: `default`, `fixed-pitch` and the
+  // UI are all the mono face there, since `modus-themes-variable-pitch-ui` is
+  // nil. The stack falls back to the system UI font on a device without it.
   --ui-font:
-    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
-    Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji",
-    "Segoe UI Symbol", "Noto Color Emoji";
-  --editor-font: "iA-Mono", "Menlo";
+    "iA-Mono", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji",
+    "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  --editor-font: "iA-Mono", "Menlo", monospace;
+  // Code blocks and the like, which otherwise fall back to generic monospace.
+  --editor-monospace-font: "iA-Mono", "Menlo", monospace;
   --editor-width: 800px;
 
   --danger-color: #dc3545;
@@ -196,7 +203,8 @@ html[data-theme="dark"] {
       var(--ui-accent-color),
       white 50%);
   --highlight-color: rgba(255, 255, 0, 0.5);
-  --link-color: #7e99fc;
+  // `red-faint` again, from modus-vivendi this time.
+  --link-color: #ff9580;
   --link-missing-color: #9e4705;
   --link-invalid-color: #d444f8;
   --meta-color: #d6222e;

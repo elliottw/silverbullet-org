@@ -106,14 +106,13 @@ Denote link does — the target is machinery, not prose:
 | Written | Shown |
 |---|---|
 | `[[denote:20240125T164237][Court Costs]]` | Court Costs |
-| `[[https://example.com][a site]]` | a site ↗ |
-| `[[https://example.com]]` | https://example.com ↗ |
+| `[[https://example.com][a site]]` | a site |
+| `[[https://example.com]]` | https://example.com |
 | `[[file:shot.png]]` | the image |
 | `[[file:shot.png][a screenshot]]` | the words |
 
-A link to somewhere outside the space carries an **↗**, because otherwise
-nothing distinguishes it from a link to another note. The arrow is drawn in
-CSS, so it never lands in a selection or in copied text.
+A link to another note carries a faint background tint that a link out of the
+space does not, which is what tells the two apart.
 
 A **described** link keeps reading as its description with the cursor on it,
 which is `org-link-descriptive` and unlike every other live-preview decoration
