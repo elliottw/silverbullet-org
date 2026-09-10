@@ -21,7 +21,11 @@ import {
   sluggify,
 } from "@silverbulletmd/silverbullet/lib/denote";
 import {
+  addParentPointers,
   collectNodesOfType,
+  findNodeOfType,
+  findParentMatching,
+  nodeAtPos,
   type ParseTree,
   renderToText,
 } from "@silverbulletmd/silverbullet/lib/tree";
@@ -39,8 +43,11 @@ import type {
   PageMeta,
 } from "@silverbulletmd/silverbullet/type/index";
 import {
+  hasLinkScheme,
   innerPageLink,
+  type LinkSyntax,
   linkSyntaxFor,
+  pageLink,
   urlLink,
 } from "@silverbulletmd/silverbullet/lib/link_syntax";
 import { pathFromPageName } from "@silverbulletmd/silverbullet/lib/ref";
@@ -224,7 +231,7 @@ export async function indexDenote(
     const targetNode = link.children?.find(
       (n) => n.type === "DenoteLinkTarget",
     );
-    const target = targetNode ? renderToText(targetNode) : "";
+    const target = targetNode ? renderToText(targetNode ?? undefined) : "";
     const match = denoteTargetRegex.exec(target);
     if (!match) {
       continue;
@@ -250,7 +257,7 @@ export async function indexDenote(
       pageLastModified: pageMeta.lastModified,
     };
     if (descriptionNode) {
-      relation.alias = renderToText(descriptionNode);
+      relation.alias = renderToText(descriptionNode ?? undefined);
     }
     objects.push(relation);
   }
@@ -633,27 +640,159 @@ export async function denoteCreateFromLink(option: {
 
 const createNoteOption = "\uFF0B  Create note\u2026";
 
+const linkToUrlOption = "\uD83D\uDD17  Link to URL\u2026";
+
+/** Org's two link node types: `[[denote:ID][…]]` and everything else. */
+const orgLinkTypes = ["DenoteLink", "OrgLink"];
+
 /**
- * `denote-link-or-create`: link to a note, making it first if it does not
- * exist yet.
+ * The Org link the cursor sits in, if any.
  *
- * `[[` completion can only offer notes that already exist, and with Denote it
- * could not do otherwise — a link addresses a note by identifier, and an
- * identifier only exists once the file does. So the note is created first and
- * the link written to it afterwards. Denote creates it `:in-background`,
- * staying in the note you are writing, and so does this.
+ * Only Org links are found. On a Markdown page the command still inserts, it
+ * just has nothing to edit -- this fork's link editing is Org's.
+ */
+export function linkAtPos(tree: ParseTree, pos: number): ParseTree | undefined {
+  addParentPointers(tree);
+  const node = nodeAtPos(tree, pos);
+  if (!node) {
+    return undefined;
+  }
+  if (orgLinkTypes.includes(node.type!)) {
+    return node;
+  }
+  return (
+    findParentMatching(node, (n) => orgLinkTypes.includes(n.type!)) ?? undefined
+  );
+}
+
+/**
+ * A complete link, given a target that may name a scheme or a page.
+ *
+ * `denote:ID` and `https://…` are targets in their own right; anything else is
+ * a page name, which Markdown and Org spell differently. A link with no
+ * description shows its target, which is what Org does too.
+ */
+export function linkFor(syntax: LinkSyntax, target: string, description: string) {
+  if (!hasLinkScheme(target)) {
+    return pageLink(syntax, target, description || undefined);
+  }
+  if (!description) {
+    return syntax === "org" ? `[[${target}]]` : `<${target}>`;
+  }
+  return urlLink(syntax, target, description);
+}
+
+/**
+ * `org-insert-link` on an existing link: its target and description, both
+ * offered as they stand. Emptying the target unlinks, leaving the words.
+ */
+async function editLink(link: ParseTree, syntax: LinkSyntax): Promise<void> {
+  const targetNode =
+    findNodeOfType(
+      link,
+      link.type === "DenoteLink" ? "DenoteLinkTarget" : "OrgLinkTarget",
+    ) ?? undefined;
+  const descriptionNode =
+    findNodeOfType(link, "OrgLinkDescription") ?? undefined;
+  const target = await editor.prompt("Link:", renderToText(targetNode));
+  if (target === undefined) {
+    return;
+  }
+  const description = await editor.prompt(
+    "Description:",
+    renderToText(descriptionNode),
+  );
+  if (description === undefined) {
+    return;
+  }
+  await editor.replaceRange(
+    link.from!,
+    link.to!,
+    target.trim()
+      ? linkFor(syntax, target.trim(), description.trim())
+      : // No target left: the link becomes the words it was showing.
+        description.trim(),
+  );
+}
+
+/** Prompts for a URL and its description, then writes the link. */
+async function insertUrlLink(
+  syntax: LinkSyntax,
+  from: number,
+  to: number,
+  url: string,
+  description: string,
+): Promise<void> {
+  const target = await editor.prompt("URL:", url);
+  if (target === undefined || !target.trim()) {
+    return;
+  }
+  const text = await editor.prompt("Description:", description);
+  if (text === undefined) {
+    return;
+  }
+  await editor.replaceRange(
+    from,
+    to,
+    linkFor(syntax, target.trim(), text.trim()),
+  );
+}
+
+/**
+ * `denote-link-or-create` and `org-insert-link` under one key.
+ *
+ * Which of the two you want is never ambiguous: on a link there is a link to
+ * edit, and off one there is a link to make. Emacs splits them across `M-i`
+ * and `M-I` only because it has no cheap way to ask.
+ *
+ * Making one: `[[` completion can only offer notes that already exist, and
+ * with Denote it could not do otherwise — a link addresses a note by
+ * identifier, and an identifier only exists once the file does. So the note is
+ * created first and the link written to it afterwards. Denote creates it
+ * `:in-background`, staying in the note you are writing, and so does this.
+ *
+ * A selection becomes the link's description, as an active region does for
+ * `org-insert-link`; a selected URL is taken as the target instead.
  */
 export async function denoteLinkOrCreateCommand(): Promise<void> {
-  const [notes, current] = await Promise.all([
-    denoteNotes(),
+  const [current, path, text, cursor, selection] = await Promise.all([
     editor.getCurrentPage(),
+    editor.getCurrentPath(),
+    editor.getText(),
+    editor.getCursor(),
+    editor.getSelection(),
   ]);
+  const syntax = linkSyntaxFor(current);
+
+  const link = linkAtPos(await markdown.parsePage(path, text), cursor);
+  if (link) {
+    return editLink(link, syntax);
+  }
+
+  // Where the link lands: over the selection when there is one, at the cursor
+  // otherwise.
+  const selected = selection.text ?? "";
+  const from = selected ? selection.from : cursor;
+  const to = selected ? selection.to : cursor;
+
+  // A selected URL is a target, not a description -- selecting one and asking
+  // for a link plainly means "make this a link".
+  if (selected && hasLinkScheme(selected.trim())) {
+    return insertUrlLink(syntax, from, to, selected.trim(), "");
+  }
+
+  const notes = await denoteNotes();
   const choice = await editor.filterBox(
     "Link",
     [
       {
         name: createNoteOption,
         description: "a note that does not exist yet",
+        orderId: -1,
+      },
+      {
+        name: linkToUrlOption,
+        description: "somewhere outside this space",
         orderId: -1,
       },
       // A note never links to itself.
@@ -671,10 +810,14 @@ export async function denoteLinkOrCreateCommand(): Promise<void> {
     return;
   }
 
+  if (choice.name === linkToUrlOption) {
+    return insertUrlLink(syntax, from, to, "", selected);
+  }
+
   let identifier: string;
   let description: string;
   if (choice.name === createNoteOption) {
-    const created = await promptForNewNote(false);
+    const created = await promptForNewNote(false, selected || undefined);
     if (!created) {
       return;
     }
@@ -684,8 +827,12 @@ export async function denoteLinkOrCreateCommand(): Promise<void> {
     identifier = choice.identifier;
     description = choice.name;
   }
-  await editor.insertAtCursor(
-    urlLink(linkSyntaxFor(current), `denote:${identifier}`, description),
+  await editor.replaceRange(
+    from,
+    to,
+    // A selection is what the link should read as; the note's title is only
+    // the fallback for a link made from nothing.
+    urlLink(syntax, `denote:${identifier}`, selected || description),
   );
 }
 

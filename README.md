@@ -46,6 +46,7 @@ Org outline motions follow `evil-org`, and folding follows `org-cycle`.
 | `Shift-Tab` | Whole buffer: OVERVIEW → CONTENTS → SHOW ALL | `org-shifttab` |
 | `Alt-j` / `Alt-k` | Move item down / up | `org-metadown` / `org-metaup` |
 | `Alt-l` / `Alt-h` | Indent / outdent item | `org-metaright` / `org-metaleft` |
+| `Alt-i` | Insert a link, or edit the one at the cursor | `denote-link-or-create` / `org-insert-link` |
 
 `Alt-<letter>` needs a workaround on macOS: Option composes characters (`⌥J`
 arrives as `∆`) and CodeMirror deliberately will not fall back to the base
@@ -58,7 +59,8 @@ and the arrow-key forms work everywhere.
 |---|---|
 | `Denote: New Note` | `denote` |
 | `Denote: New Note with Signature` | `denote-signature` |
-| `Denote: Link or Create` | `denote-link-or-create` |
+| `Denote: Insert or Edit Link` (`Alt-i`) | `denote-link-or-create`, `org-insert-link` |
+| `Denote: Toggle Link Display` | `org-toggle-link-display` |
 | `Denote: Rename File from Front Matter` | `denote-rename-file-using-front-matter` |
 | `Denote: Update Dynamic Blocks` | `org-update-all-dblocks` |
 | `Denote: Insert Links Block` and three siblings | `denote-org-extras-dblock-insert-*` |
@@ -115,6 +117,27 @@ CSS, so it never lands in a selection or in copied text.
 
 Putting the cursor on a link shows its source, as every live-preview
 decoration does. Clicking an external link opens it in a new tab.
+
+Editing a link is still a command, the way `org-insert-link` is. `Alt-i` reads
+the cursor:
+
+* **On a link** it is `org-insert-link` — the target and the description, both
+  offered as they stand. Emptying the target unlinks, leaving the words behind.
+* **Off a link** it is `denote-link-or-create` — pick a note, mint one that
+  does not exist yet, or link somewhere outside the space. A selection becomes
+  the description, as an active region does in Emacs; a selected URL is taken
+  as the target instead.
+
+`Denote: Toggle Link Display` (`org-toggle-link-display`) turns the rendering
+off for the session, so every link reads as its source — for repairing link
+syntax by hand.
+
+**Not** Emacs, deliberately: Org keeps a link collapsed even with point inside
+it. Doing the same here was tried and reverted. SilverBullet's inline `[[`
+completion types *into* a link — auto-close makes `[[` a complete, empty link
+node immediately — so a link that collapsed with the cursor in it hid the text
+being typed and took the completion down with it. The e2e suite is explicit
+about this; see the note in `client/codemirror/denote_link.ts`.
 
 ## Attachments
 

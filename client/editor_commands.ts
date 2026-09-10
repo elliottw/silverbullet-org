@@ -57,6 +57,7 @@ import {
   updateBakedSections,
 } from "./baked_sections/bake.ts";
 import type { Client } from "./client.ts";
+import { toggleDenoteLinkDisplay } from "./codemirror/denote_link.ts";
 import { reloadAllWidgets } from "./codemirror/code_widget.ts";
 import { broadcastReload } from "./components/widget_sandbox_iframe.ts";
 import type { CommandHook } from "./plugos/hooks/command.ts";
@@ -687,6 +688,19 @@ export function registerEditorCommands(
         selection: { anchor: from + text.length },
       });
       client.focus();
+    },
+  });
+  hook.registerCommand({
+    name: "Denote: Toggle Link Display",
+    requireEditor: "page",
+    run: async () => {
+      const descriptive = toggleDenoteLinkDisplay(view());
+      client.ui.flashNotification(
+        descriptive
+          ? "Links shown as their description"
+          : "Links shown as their source",
+        "info",
+      );
     },
   });
 }

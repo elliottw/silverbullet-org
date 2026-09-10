@@ -1,5 +1,11 @@
 import { expect, test } from "vitest";
-import { denoteFrontMatter, denoteMetadata } from "./denote.ts";
+import { parseOrg } from "../../client/org_parser/parser.ts";
+import {
+  denoteFrontMatter,
+  denoteMetadata,
+  linkAtPos,
+  linkFor,
+} from "./denote.ts";
 
 const note = `#+title:      Court Costs Relating to Evictions
 #+date:       [2024-01-25 Thu 16:42]
@@ -60,4 +66,73 @@ test("Denote metadata is exposed as front matter so tags and titles flow on", ()
   expect(frontMatter.displayName).toEqual("Court Costs Relating to Evictions");
   expect(frontMatter.identifier).toEqual("20240125T164237");
   expect(frontMatter.signature).toEqual("1a");
+});
+
+// ---------------------------------------------------------------------------
+// Insert or edit link
+// ---------------------------------------------------------------------------
+
+const linkPage = `#+title: Notes
+
+A [[denote:20240125T164237][Court Costs]] link, an
+[[https://example.com][example]] one, and a bare [[Some Note]].
+`;
+
+function linkTypeAt(text: string, pos: number): string | undefined {
+  return linkAtPos(parseOrg(text), pos)?.type;
+}
+
+test("The cursor finds the Denote link it sits inside", () => {
+  // Anywhere within `[[denote:…][Court Costs]]`, including its description.
+  expect(linkTypeAt(linkPage, linkPage.indexOf("Court Costs") + 3)).toEqual(
+    "DenoteLink",
+  );
+  expect(linkTypeAt(linkPage, linkPage.indexOf("denote:"))).toEqual(
+    "DenoteLink",
+  );
+});
+
+test("The cursor finds an external Org link, and a bare one", () => {
+  expect(linkTypeAt(linkPage, linkPage.indexOf("example]") + 2)).toEqual(
+    "OrgLink",
+  );
+  expect(linkTypeAt(linkPage, linkPage.indexOf("Some Note") + 2)).toEqual(
+    "OrgLink",
+  );
+});
+
+test("Off a link there is nothing to edit", () => {
+  expect(linkTypeAt(linkPage, linkPage.indexOf("A [["))).toBeUndefined();
+  expect(linkTypeAt(linkPage, linkPage.indexOf("link, an") + 2)).toBeUndefined();
+});
+
+test("A target naming a scheme becomes a URL link, a bare one a page link", () => {
+  expect(linkFor("org", "denote:20240125T164237", "Court Costs")).toEqual(
+    "[[denote:20240125T164237][Court Costs]]",
+  );
+  expect(linkFor("org", "https://example.com", "example")).toEqual(
+    "[[https://example.com][example]]",
+  );
+  expect(linkFor("org", "Some Note", "the note")).toEqual(
+    "[[Some Note][the note]]",
+  );
+});
+
+test("A link with no description is written as its target alone", () => {
+  expect(linkFor("org", "https://example.com", "")).toEqual(
+    "[[https://example.com]]",
+  );
+  // Markdown has no bare-bracket form for a URL; an autolink is the equivalent.
+  expect(linkFor("markdown", "https://example.com", "")).toEqual(
+    "<https://example.com>",
+  );
+});
+
+test("Markdown spells the same link its own way", () => {
+  expect(linkFor("markdown", "https://example.com", "example")).toEqual(
+    "[example](https://example.com)",
+  );
+  expect(linkFor("markdown", "Some Note", "the note")).toEqual(
+    "[[Some Note|the note]]",
+  );
 });

@@ -161,10 +161,14 @@ functions:
     command:
       name: "Denote: New Note with Signature"
       requireMode: rw
+  # `denote-link-or-create` (M-i) and `org-insert-link` (M-I) under one key:
+  # on a link there is a link to edit, off one there is a link to make.
   denoteLinkOrCreate:
     path: ./denote.ts:denoteLinkOrCreateCommand
     command:
-      name: "Denote: Link or Create"
+      name: "Denote: Insert or Edit Link"
+      key: "Alt-i"
+      mac: "Alt-i"
       requireMode: rw
       requireEditor: page
   # `denote-open-or-create`: what the page picker's create row calls.

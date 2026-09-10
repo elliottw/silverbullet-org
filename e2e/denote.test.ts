@@ -398,9 +398,13 @@ test.describe("Creating a Denote note", () => {
       timeout: 20_000,
     });
     await sbPage.keyboard.press("Enter");
-    await expect(editor).toContainText(
-      `[[denote:${identifier}][Freshly Made Note]]`,
+    // A link is drawn as its description, so the source is read from the
+    // document rather than the screen.
+    await expect(editor).toContainText("Freshly Made Note");
+    const text = await sbPage.evaluate(() =>
+      (globalThis as any).sbRuntime.evalLuaScript("return editor.getText()"),
     );
+    expect(text).toContain(`[[denote:${identifier}][Freshly Made Note]]`);
   });
 
   test("Denote: New Note with Signature includes the signature", async ({
@@ -805,7 +809,10 @@ test.describe("A meta keyword is not a meta page", () => {
     });
     await sbPage.keyboard.press("Enter");
     await sbPage.waitForTimeout(800);
-    await expect(editor).toContainText("[[denote:20231221T085005]");
+    const text = await sbPage.evaluate(() =>
+      (globalThis as any).sbRuntime.evalLuaScript("return editor.getText()"),
+    );
+    expect(text).toContain("[[denote:20231221T085005]");
   });
 });
 
@@ -898,7 +905,7 @@ test.describe("Link or create", () => {
 
     await sbPage.evaluate(() => {
       void (globalThis as any).sbRuntime.evalLuaScript(
-        `editor.invokeCommand("Denote: Link or Create")`,
+        `editor.invokeCommand("Denote: Insert or Edit Link")`,
       );
     });
     const filter = sbPage
@@ -912,9 +919,14 @@ test.describe("Link or create", () => {
     await filter.press("Enter");
 
     // The description is Denote's own: signature, two spaces, title.
-    await expect(editor).toContainText(
+    await expect(editor).toContainText("1b  Waivers of Filing Fees", {
+      timeout: 20_000,
+    });
+    const text = await sbPage.evaluate(() =>
+      (globalThis as any).sbRuntime.evalLuaScript("return editor.getText()"),
+    );
+    expect(text).toContain(
       "[[denote:20240126T082320][1b  Waivers of Filing Fees]]",
-      { timeout: 20_000 },
     );
   });
 });
@@ -1012,12 +1024,11 @@ test.describe("Link or create from [[", () => {
 
     // A link by identifier, to a note that now exists -- and we are still in
     // the note being written, as Denote's `:in-background` leaves you.
-    await expect(editor).toContainText(
-      /\[\[denote:\d{8}T\d{6}\]\[Brand New Note\]\]/,
-      {
-        timeout: 20_000,
-      },
+    await expect(editor).toContainText("Brand New Note", { timeout: 20_000 });
+    const text = await sbPage.evaluate(() =>
+      (globalThis as any).sbRuntime.evalLuaScript("return editor.getText()"),
     );
+    expect(text).toMatch(/\[\[denote:\d{8}T\d{6}\]\[Brand New Note\]\]/);
     await expect(currentPage(sbPage)).toHaveValue(COSTS);
 
     const names = await sbPage.evaluate(async () => {
@@ -1057,7 +1068,18 @@ test.describe("Link or create from [[", () => {
       .locator(".sb-modal-box input, .sb-modal input")
       .first()
       .press("Escape");
-    await expect(editor).toContainText("denote:", { timeout: 20_000 });
+    await expect(editor).toContainText("Followed Note", { timeout: 20_000 });
+    await expect
+      .poll(
+        () =>
+          sbPage.evaluate(() =>
+            (globalThis as any).sbRuntime.evalLuaScript(
+              "return editor.getText()",
+            ),
+          ),
+        { timeout: 20_000 },
+      )
+      .toContain("denote:");
 
     await sbPage.getByText("Followed Note").last().click();
     await expect(currentPage(sbPage)).toHaveValue(

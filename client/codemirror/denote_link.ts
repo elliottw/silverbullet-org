@@ -1,5 +1,15 @@
 import { syntaxTree } from "@codemirror/language";
-import { Decoration, type DecorationSet } from "@codemirror/view";
+import {
+  type Extension,
+  StateEffect,
+  StateField,
+  type Transaction,
+} from "@codemirror/state";
+import {
+  Decoration,
+  type DecorationSet,
+  type EditorView,
+} from "@codemirror/view";
 import { parseDenoteName } from "@silverbulletmd/silverbullet/lib/denote";
 import { hasLinkScheme } from "@silverbulletmd/silverbullet/lib/link_syntax";
 import { orgInlineMedia } from "./org_image.ts";
@@ -32,12 +42,39 @@ export function resolveDenoteIdentifier(
 
 const denoteTargetRegex = /^denote:([^:\s]+)(?:::(.*))?$/;
 
+const toggleLinkDisplayEffect = StateEffect.define<void>();
+
+/**
+ * Whether a link is drawn as its description — `org-link-descriptive`.
+ *
+ * Off, every link shows its source, which is what `org-toggle-link-display`
+ * is for: reading or repairing link syntax by hand.
+ */
+export const denoteLinkDisplay = StateField.define<boolean>({
+  create: () => true,
+  update(value: boolean, tr: Transaction) {
+    for (const effect of tr.effects) {
+      if (effect.is(toggleLinkDisplayEffect)) {
+        return !value;
+      }
+    }
+    return value;
+  },
+});
+
+/** `org-toggle-link-display`. Returns the display state it left behind. */
+export function toggleDenoteLinkDisplay(view: EditorView): boolean {
+  view.dispatch({ effects: toggleLinkDisplayEffect.of(undefined) });
+  return view.state.field(denoteLinkDisplay, false) ?? true;
+}
+
 /**
  * Renders `[[denote:ID][Description]]` — and a bare `[[Page][Description]]` —
  * as a single clickable link.
  */
-export function denoteLinkPlugin(client: Client) {
-  return decoratorStateField((state): DecorationSet => {
+export function denoteLinkPlugin(client: Client): Extension {
+  const decorations = decoratorStateField((state): DecorationSet => {
+    const descriptive = state.field(denoteLinkDisplay, false) ?? true;
     const widgets: any[] = [];
     syntaxTree(state).iterate({
       enter: ({ type, from, to, node }) => {
@@ -45,8 +82,18 @@ export function denoteLinkPlugin(client: Client) {
         if (!isDenote && type.name !== "OrgLink") {
           return;
         }
+        // With `org-toggle-link-display` off, a link is just its source.
+        if (!descriptive) {
+          return;
+        }
         // Editing a link shows its source, as every other live-preview
         // decoration does.
+        //
+        // Collapsing it even with the cursor on it — `org-link-descriptive`,
+        // which is what Emacs does — was tried and reverted: SilverBullet's
+        // inline `[[` completion types *into* a link that auto-close has
+        // already closed, so a collapsed one hid the text going into it and
+        // took the completion down with it.
         if (isCursorInRange(state, [from, to])) {
           return;
         }
@@ -184,4 +231,5 @@ export function denoteLinkPlugin(client: Client) {
     });
     return Decoration.set(widgets, true);
   });
+  return [denoteLinkDisplay, decorations];
 }
