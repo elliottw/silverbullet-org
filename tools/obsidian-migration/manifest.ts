@@ -36,7 +36,7 @@ import { config } from "./config.ts";
 export type Entry = {
   /** Path inside the vault. For a journal split, the day page it came from. */
   source: string;
-  kind: "note" | "attachment" | "bundle" | "journal" | "journal-attachment";
+  kind: "note" | "attachment" | "verbatim" | "journal" | "journal-attachment";
   /** Path inside the library it becomes, or null when it is dropped. */
   target: string | null;
   identifier: string;
@@ -69,13 +69,9 @@ export type Manifest = {
 // Walking the vault
 // ---------------------------------------------------------------------------
 
-const skipDirs = [
-  /^\.obsidian/,
-  /^\.trash$/,
-  /^\.claude$/,
-  /\.nosync$/,
-  /^reMarkable$/,
-];
+// `.nosync` folders are code, kept verbatim; `reMarkable/` is 3 GB of tablet
+// exports and is left where it is until someone asks for it.
+const skipDirs = [/^\.obsidian/, /^\.trash$/, /^\.claude$/, /^reMarkable$/];
 const skipFiles = [
   /^\.DS_Store$/,
   /^\.gitkeep$/,
@@ -96,40 +92,77 @@ function isAssetBundle(dir: string): boolean {
   return true;
 }
 
+const projectMarkers = [
+  ".git",
+  "package.json",
+  "Cargo.toml",
+  "pyproject.toml",
+  "requirements.txt",
+  "go.mod",
+  ".venv",
+];
+const sourceFile = /\.(py|js|ts|jsx|tsx|rs|swift|sh|go|rb|c|h|cpp|scad|ino)$/i;
+
+/** A page saved with SingleFile or a browser: `name(4_7_2021_12_43_32_pm)`, `name_files`. */
+const webClip = /\(\d{1,2}_\d{1,2}_\d{4}_[\d_]+[ap]m\)$|_files$/i;
+
 /**
- * Yields every file, and every *bundle*: a folder with no notes in it that
- * sits below the two Johnny Decimal levels. A saved web page and its 70
- * images, a batch of certificates, a photo dump — those are one thing each
- * and move as one thing, keeping their names. Flattening them into the ID
- * folder as 70 Denote-named files would bury the notes beside them.
+ * Whether a folder is copied byte-for-byte: nothing renamed, nothing
+ * converted. That is a folder that is really a *thing* rather than a place
+ * for notes and their files -- a repository, a code project, a saved web
+ * page with its images, a dump of a few dozen photos or certificates. A
+ * `README.md` inside one is part of the thing, not a note.
+ *
+ * A numbered folder is a JD place, never verbatim, whatever it holds: `05
+ * landslide` with four PDFs in it is four attachments, Denote-named where
+ * they are. So is a JD category that happens to be a repository (the
+ * Pittsburgh book is); only a project *inside* the tree is verbatim.
  */
-function* walk(dir: string, rel = "", jdDepth = 0): Generator<string> {
+function isVerbatim(abs: string, name: string, isNumbered: boolean): boolean {
+  if (/\.nosync$/.test(name) || /\.icon$/.test(name)) return true;
+  // A JD place, or an `assets/` folder that dissolves into one.
+  if (isNumbered || name === "assets") return false;
+  const names = readdirSync(abs);
+  if (names.some((n) => projectMarkers.includes(n))) return true;
+  if (names.filter((n) => sourceFile.test(n)).length >= 3) return true;
+  if (webClip.test(name)) return true;
+  if (
+    names.some((n) => /\.html?$/i.test(n)) &&
+    names.some((n) => /\.(png|jpe?g|gif|webp|svg|css)$/i.test(n))
+  ) {
+    return true;
+  }
+  // A dump: no notes at any depth, and enough files that renaming each one
+  // would be noise rather than organisation.
+  return isAssetBundle(abs) && [...walkAll(abs)].length >= 10;
+}
+
+/** Yields every file, and every verbatim folder as one unit. */
+function* walk(dir: string, rel = ""): Generator<string> {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const relPath = rel ? `${rel}/${entry.name}` : entry.name;
     if (entry.isDirectory()) {
       if (skipDirs.some((r) => r.test(entry.name))) continue;
       const abs = join(dir, entry.name);
-      // A macOS bundle (`.icon`) is one thing, not a folder of things.
-      if (/\.icon$/.test(entry.name)) {
+      const isNumbered =
+        numberedDir.test(entry.name) || areaDir.test(entry.name);
+      if (isVerbatim(abs, entry.name, isNumbered)) {
         yield relPath;
         continue;
       }
-      const numbered = numberedDir.test(entry.name) || areaDir.test(entry.name);
-      const depth = numbered ? jdDepth + 1 : jdDepth;
-      // Two JD levels below the area: area counts one, category and ID two more.
-      if (
-        !numbered &&
-        jdDepth >= 3 &&
-        entry.name !== "assets" &&
-        isAssetBundle(abs)
-      ) {
-        yield relPath;
-        continue;
-      }
-      yield* walk(abs, relPath, depth);
+      yield* walk(abs, relPath);
     } else if (!skipFiles.some((r) => r.test(entry.name))) {
       yield relPath;
     }
+  }
+}
+
+/** Plain file walk, for counting what a verbatim folder holds. */
+function* walkAll(dir: string, rel = ""): Generator<string> {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const relPath = rel ? `${rel}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) yield* walkAll(join(dir, entry.name), relPath);
+    else if (entry.name !== ".DS_Store") yield relPath;
   }
 }
 
@@ -142,49 +175,41 @@ const numberedDir = /^(\d{2}) (.+)$/; // `21 iteam`
 const jdIdFile = /^(\d{2})\.(\d{2}) (.+)$/; // `25.03 Acorn Medic Branding`
 
 type Placement = {
-  /** Library folder, e.g. `21 iteam/14 landslide mediation`. */
+  /** Library folder: the vault's own, minus the area layer and `assets/`. */
   folder: string;
   signature?: string;
-  /** Sub-folders below the two JD levels, carried as keywords. */
-  extraKeywords: string[];
   warnings: string[];
 };
 
+/**
+ * Where a file lives in the library: exactly where it lived in the vault,
+ * minus the area folder (the category number already says it) and any
+ * `assets/` (assets live beside their notes). Deeper nesting is kept as it
+ * is -- inboxes, code, trips by date, and things simply not sorted yet are
+ * all legitimately not JD. The signature is the first two numbered levels,
+ * and only when the tree starts with one; a non-JD top folder gets none.
+ */
 function place(relPath: string): Placement {
   const parts = relPath.split("/");
   const dirs = parts.slice(0, -1).filter((d) => d !== "assets");
-  const warnings: string[] = [];
-  let i = 0;
-  if (dirs[0] && areaDir.test(dirs[0])) i = 1; // the area layer goes
-  const category = dirs[i] && numberedDir.exec(dirs[i]);
-  if (!category) {
-    // Nowhere obvious to put it: park it in the inbox, keeping whatever
-    // folders it had so a batch of related files stays together for sorting.
-    const kept = dirs.slice(i);
-    return {
-      folder: [config.unassignedFolder, ...kept].join("/"),
-      extraKeywords: [],
-      warnings: [
-        kept.length
-          ? `no JD category: parked under "${config.unassignedFolder}/${kept.join("/")}"`
-          : "loose at the vault root",
-      ],
-    };
-  }
-  const id = dirs[i + 1] && numberedDir.exec(dirs[i + 1]);
-  const kept = id ? [dirs[i], dirs[i + 1]] : [dirs[i]];
-  const deeper = dirs.slice(i + kept.length);
-  if (deeper.length) {
-    warnings.push(
-      `deeper than two levels: "${deeper.join("/")}" folded in as keywords`,
-    );
-  }
-  const signature = id ? `${category[1]}=${id[1]}` : category[1];
+  const kept = dirs[0] && areaDir.test(dirs[0]) ? dirs.slice(1) : dirs;
+  const category = kept[0] && numberedDir.exec(kept[0]);
+  const id = category && kept[1] && numberedDir.exec(kept[1]);
+  const signature = category
+    ? id
+      ? `${category[1]}=${id[1]}`
+      : category[1]
+    : undefined;
   return {
     folder: kept.join("/"),
     signature,
-    extraKeywords: deeper.map((d) => d.replace(numberedDir, "$2")),
-    warnings,
+    warnings: category
+      ? []
+      : [
+          kept.length
+            ? `not under a JD category: "${kept[0]}"`
+            : "loose at the vault root",
+        ],
   };
 }
 
@@ -395,26 +420,27 @@ function main() {
     const placement = place(rel);
     const stat = statSync(abs);
     if (stat.isDirectory()) {
-      // A bundle: moved whole, under the ID folder, name unchanged.
+      // Verbatim: copied whole, name and contents untouched.
       const target = `${placement.folder}/${name}`;
       entries.push({
         source: rel,
-        kind: "bundle",
+        kind: "verbatim",
         target,
         identifier: "",
         identifierFrom: "birthtime",
         title: name,
         keywords: [],
-        warnings: placement.warnings.filter((w) => !w.startsWith("deeper")),
+        warnings: placement.warnings,
       });
       links[rel] = target;
       links[name] = links[name] ?? target;
-      // Files inside are linkable by name too: `![[image.png]]` in Obsidian.
-      for (const inner of walk(abs, rel)) {
+      for (const inner of walkAll(abs, rel)) {
         const innerName = inner.split("/").pop()!;
         links[inner] =
           `${placement.folder}/${inner.slice(rel.length - name.length)}`;
         links[innerName] = links[innerName] ?? links[inner];
+        const innerStem = innerName.replace(/\.[^.]+$/, "");
+        links[innerStem] = links[innerStem] ?? links[inner];
       }
       continue;
     }
@@ -445,12 +471,7 @@ function main() {
         );
       }
       const keywords = [
-        ...new Set(
-          [
-            ...fm.tags.map(keywordOf),
-            ...placement.extraKeywords.map((k) => sluggify("keyword", k)),
-          ].filter(Boolean),
-        ),
+        ...new Set(fm.tags.map(keywordOf).filter(Boolean)),
       ].sort();
       const title = fm.title ?? stripPrefixes(stem) ?? stem;
 
@@ -618,14 +639,9 @@ function report(m: Manifest): string {
   const group = (pred: (w: string) => boolean) =>
     warned.filter((e) => e.warnings.some(pred));
   const unassigned = group(
-    (w) => w.startsWith("no JD category") || w.startsWith("loose"),
+    (w) => w.startsWith("not under") || w.startsWith("loose"),
   );
-  const deeper = group((w) => w.startsWith("deeper")).filter(
-    (e) => e.kind === "note",
-  );
-  const deeperFiles = group((w) => w.startsWith("deeper")).filter(
-    (e) => e.kind === "attachment",
-  );
+  const verbatim = by("verbatim");
   const mismatch = group((w) => w.includes("but lives under"));
   const shared = group((w) => w.includes("is shared by"));
   const folders = new Set(
@@ -655,7 +671,7 @@ function report(m: Manifest): string {
     `|---|---|`,
     `| notes | ${by("note").length} |`,
     `| attachments | ${by("attachment").length} |`,
-    `| asset bundles moved whole (${by("bundle").reduce((n, e) => n + [...walk(join(m.vault, e.source))].length, 0)} files) | ${by("bundle").length} |`,
+    `| verbatim folders, copied untouched (${by("verbatim").reduce((n, e) => n + [...walkAll(join(m.vault, e.source))].length, 0)} files) | ${by("verbatim").length} |`,
     `| journal entries (from ${new Set(by("journal").map((e) => e.source)).size} sources) | ${by("journal").length} |`,
     `| journal attachments | ${by("journal-attachment").length} |`,
     `| dropped | ${dropped.length} |`,
@@ -665,15 +681,18 @@ function report(m: Manifest): string {
     "",
     `## Needs a decision`,
     "",
-    `### ${unassigned.length} files with no JD category → parked under \`${config.unassignedFolder}/\``,
+    `### ${unassigned.length} files not under a JD category (kept where they are)`,
     "",
     ...summarise(
       unassigned.map((e) => e.source.split("/").slice(0, 2).join("/")),
     ),
     "",
-    `### ${deeper.length} notes deeper than two levels (sub-folder → keyword), plus ${deeperFiles.length} loose files beside them`,
+    `### ${verbatim.length} folders copied verbatim (code, repositories, saved pages, batches of files)`,
     "",
-    ...summarise(deeper.map((e) => e.source.split("/").slice(0, -1).join("/"))),
+    ...verbatim.map(
+      (e) =>
+        `- \`${e.source}\` (${[...walkAll(join(m.vault, e.source))].length} files)`,
+    ),
     "",
     `### ${mismatch.length} notes whose NN.NN prefix disagrees with their folder`,
     "",
