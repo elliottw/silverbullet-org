@@ -243,7 +243,9 @@ function convertNote(e: Entry) {
     );
   } else {
     text = text.replace(frontMatter, "").replace(/^\n+/, "");
-    text = dropTitleLine(text, e.title);
+    // Obsidian notes often start their sections at `##`, the title being the
+    // file name; Org's start at `*`.
+    text = promoteHeadings(dropTitleLine(text, e.title));
   }
   const date = dateOf(e.identifier);
   const head = formatDenoteFrontMatter(
@@ -423,6 +425,17 @@ function writeCategoryIndexes() {
     "",
   ].join("\n");
   writeFileSync(join(config.out, "home-addendum.org"), addendum);
+  // The staged library gets the merged home page too, so it can be browsed
+  // -- and so the merge is rehearsed rather than done for the first time at
+  // cutover. The library's own home is read, never written.
+  const homeName = config.linkAliases["✱ Home"];
+  let home = "";
+  try {
+    home = readFileSync(join(config.library, homeName), "utf8").trimEnd();
+  } catch {
+    home = `#+title:      Home\n#+identifier: 00000000T000000\n`;
+  }
+  write(homeName, `${home}\n\n${addendum}`);
   writeSpaceIgnore();
 }
 
