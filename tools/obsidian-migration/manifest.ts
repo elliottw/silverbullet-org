@@ -285,16 +285,54 @@ function dateFromName(stem: string): Date | undefined {
   if (!m) return undefined;
   const [y, mo, d] = m[1] ? [m[1], m[2], m[3]] : [m[4], m[5], m[6]];
   const date = new Date(+y, +mo - 1, +d);
-  return Number.isNaN(date.getTime()) || +y < 1990 ? undefined : date;
+  // `9999-99-99 Future Trip Ideas` is a sort-to-the-end trick, not a date;
+  // JavaScript would happily roll it over into the year 10007.
+  const real =
+    date.getFullYear() === +y &&
+    date.getMonth() === +mo - 1 &&
+    date.getDate() === +d;
+  return !real || +y < 1990 || +y > 2100 ? undefined : date;
 }
 
+const entities: Record<string, string> = {
+  "&#39;": "'",
+  "&amp;": "&",
+  "&quot;": '"',
+  "&lt;": "<",
+  "&gt;": ">",
+};
+
 function stripPrefixes(stem: string): string {
-  return stem
-    .replace(/^#+\s*/, "") // a heading pasted as a file name
-    .replace(jdIdFile, "$3")
-    .replace(/^0?\d{8}\s*/, "")
-    .replace(/^\d{4}-\d{2}-\d{2}\s*/, "")
-    .trim();
+  return (
+    stem
+      // A file name that came through a browser: `Mike_O&#39;Toole`.
+      .replace(/&(#39|amp|quot|lt|gt);/g, (w) => entities[w] ?? w)
+      .replace(/^#+\s*/, "") // a heading pasted as a file name
+      // Denote keeps a dash in a title as it is, which makes `shade-—-the` in
+      // a file name; a plain hyphen reads the same and slugs cleanly.
+      .replace(/\s*[—–]\s*/g, " - ")
+      .replace(jdIdFile, "$3")
+      .replace(/^0?\d{8}\s*/, "")
+      .replace(/^\d{4}-\d{2}-\d{2}\s*/, "")
+      .trim()
+  );
+}
+
+/**
+ * A title short enough for its Denote name to fit a file system.
+ *
+ * Some notes are a whole first sentence with the same sentence as the body
+ * (`Drinking and smoking a lot these days. Hopefully it's just…`); with an
+ * identifier, signature and extension around it that passes 255 bytes. The
+ * title is cut at a word boundary until the name fits, and nothing is lost:
+ * the body still has every word.
+ */
+function fitTitle(title: string, name: (title: string) => string): string {
+  let fitted = title;
+  while (Buffer.byteLength(name(fitted)) > 200 && fitted.includes(" ")) {
+    fitted = fitted.replace(/\s+\S*$/, "");
+  }
+  return fitted;
 }
 
 // ---------------------------------------------------------------------------
@@ -315,8 +353,35 @@ const months: Record<string, number> = {
   Nov: 11,
   Dec: 12,
 };
-const yearHeading =
-  /^##\s+(?:(?:Mon|Tues|Wednes|Thurs|Fri|Satur|Sun)day\s+)?(\d{4})\s*(?:<!--.*-->)?\s*$/;
+// Case-insensitive, and lenient about the weekday's spelling: the pages hold
+// a `friday 2026` and a `Wednesay 2026`, and each is a year section too.
+const yearHeading = /^##\s+(?:[a-z]+day\s+)?(\d{4})\s*(?:<!--.*-->)?\s*$/i;
+
+/** The year of the section in a day page that links `fileName`, else the last section's. */
+function calendarYearFor(
+  dayPage: string,
+  fileName: string,
+): number | undefined {
+  if (!existsSync(dayPage)) return undefined;
+  const needle = fileName.toLowerCase();
+  let year: number | undefined;
+  let last: number | undefined;
+  for (const line of readFileSync(dayPage, "utf8").split("\n")) {
+    const h = yearHeading.exec(line);
+    if (h) {
+      last = +h[1];
+      continue;
+    }
+    if (
+      last &&
+      !year &&
+      decodeURIComponent(line).toLowerCase().includes(needle)
+    ) {
+      year = last;
+    }
+  }
+  return year ?? last;
+}
 
 function splitDayPage(relPath: string, text: string): Entry[] {
   const stem = relPath.split("/").pop()!.replace(/\.md$/, "");
@@ -382,18 +447,27 @@ function main() {
         continue;
       }
       if (under.startsWith("days/")) {
-        // `days/02 Aug/IMG_1460.jpeg`: an attachment of that day's entry.
+        // `days/02 Aug/IMG_1460.jpeg`: an attachment of one of that day's
+        // entries. Which year is decided by the section that links to it;
+        // a file nothing links to is dated to the last section.
         const dayDir = under.split("/")[1];
         const [d, m] = dayDir.split(" ");
+        const year = calendarYearFor(
+          join(vault, config.calendarDir, "days", `${dayDir}.md`),
+          name,
+        );
         const date =
-          months[m] && +d
-            ? new Date(2025, months[m] - 1, +d)
+          months[m] && +d && year
+            ? new Date(year, months[m] - 1, +d)
             : new Date(statSync(abs).birthtime);
         const identifier = claim(date);
+        const target = `${config.journalFolder}/${denoteAttachmentName(identifier, name)}`;
+        links[rel] = target;
+        links[name] = links[name] ?? target;
         entries.push({
           source: rel,
           kind: "journal-attachment",
-          target: `${config.journalFolder}/${denoteAttachmentName(identifier, name)}`,
+          target,
           identifier,
           identifierFrom: "name",
           title: name,
@@ -473,7 +547,17 @@ function main() {
       const keywords = [
         ...new Set(fm.tags.map(keywordOf).filter(Boolean)),
       ].sort();
-      const title = fm.title ?? stripPrefixes(stem) ?? stem;
+      const title = fitTitle(
+        fm.title ?? stripPrefixes(stem) ?? stem,
+        (candidate) =>
+          formatDenoteName({
+            identifier,
+            signature,
+            title: candidate,
+            keywords,
+            extension: ".org",
+          }),
+      );
 
       if (isJournalFolder) {
         const jt = journalTitle(date, config.journalTitleFormat);
