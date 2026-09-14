@@ -17,6 +17,11 @@ import {
 } from "@codemirror/view";
 import { parseDenoteName } from "@silverbulletmd/silverbullet/lib/denote";
 import { hasLinkScheme } from "@silverbulletmd/silverbullet/lib/link_syntax";
+import {
+  shortCitation,
+  zoteroSelectUrl,
+  zoteroWebUrl,
+} from "@silverbulletmd/silverbullet/lib/bibtex";
 import { orgInlineMedia } from "./org_image.ts";
 import { encodePageURI } from "@silverbulletmd/silverbullet/lib/ref";
 import type { PageMeta } from "@silverbulletmd/silverbullet/type/index";
@@ -195,6 +200,63 @@ export function denoteLinkPlugin(client: Client): Extension {
     const widgets: any[] = [];
     syntaxTree(state).iterate({
       enter: ({ type, from, to, node }) => {
+        if (type.name === "OrgCitation") {
+          // `[cite:@graham2004]` reads as `Graham 2004`. Its source shows
+          // while the cursor is inside, as every other markup does here: a
+          // citation is short, and there is no description to keep.
+          if (isCursorInRange(state, [from, to])) {
+            return;
+          }
+          const keys = node.getChildren("OrgCitationKey");
+          if (!keys.length) {
+            return;
+          }
+          const text = keys
+            .map((k) => {
+              const citekey = state.sliceDoc(k.from + 1, k.to);
+              const entry = client.zotero.entry(citekey);
+              return entry ? shortCitation(entry) : `@${citekey}`;
+            })
+            .join("; ");
+          const first = state.sliceDoc(keys[0].from + 1, keys[0].to);
+          const entry = client.zotero.entry(first);
+          const username = client.config.get<{ username?: string }>(
+            "zotero",
+            {},
+          ).username;
+          const attachment = entry?.attachments[0]?.key;
+          widgets.push(
+            Decoration.replace({
+              widget: new LinkWidget({
+                from,
+                text,
+                title: entry
+                  ? entry.title
+                  : `Not in the bibliography: @${first}`,
+                href:
+                  attachment && username
+                    ? zoteroWebUrl(username, attachment)
+                    : `zotero://select/items/@${first}`,
+                cssClass: entry
+                  ? "sb-wiki-link sb-denote-link sb-zotero-citation"
+                  : "sb-wiki-link sb-denote-link sb-zotero-citation sb-wiki-link-page-missing",
+                callback: (e) => {
+                  if (e.altKey) {
+                    client.editorView.dispatch({ selection: { anchor: from } });
+                    client.focus();
+                    return;
+                  }
+                  client.clientSystem.system
+                    .invokeFunction("index.zoteroOpenCitekey", [first])
+                    .catch((err) =>
+                      console.error("Could not open citation", err),
+                    );
+                },
+              }),
+            }).range(from, to),
+          );
+          return;
+        }
         const isDenote = type.name === "DenoteLink";
         if (!isDenote && type.name !== "OrgLink") {
           return;
@@ -232,6 +294,49 @@ export function denoteLinkPlugin(client: Client): Extension {
           if (target.startsWith("file:")) {
             return;
           }
+          // `zotero:KEY` names an item: it reads as the item's title when it
+          // has no description, and opens at zotero.org.
+          const zotero = /^zotero:([A-Z0-9]{8})$/.exec(target);
+          const zoteroUsername = client.config.get<{ username?: string }>(
+            "zotero",
+            {},
+          ).username;
+          // A described one is drawn like any described link below -- marks,
+          // not a widget, so the cursor can sit in it -- with its href fixed
+          // up. Only a bare one, having no text of its own, needs the widget.
+          if (zotero && !described) {
+            const entry = client.zotero.entryForItem(zotero[1]);
+            const username = zoteroUsername;
+            const text = entry?.title ?? zotero[1];
+            widgets.push(
+              Decoration.replace({
+                widget: new LinkWidget({
+                  from,
+                  text,
+                  title: entry?.title ?? `Zotero item ${zotero[1]}`,
+                  href: username
+                    ? zoteroWebUrl(username, zotero[1])
+                    : zoteroSelectUrl(zotero[1]),
+                  cssClass: "sb-wiki-link sb-denote-link sb-zotero-link",
+                  callback: (e) => {
+                    if (e.altKey) {
+                      client.editorView.dispatch({
+                        selection: { anchor: from },
+                      });
+                      client.focus();
+                      return;
+                    }
+                    client.clientSystem.system
+                      .invokeFunction("index.zoteroOpenItemKey", [zotero[1]])
+                      .catch((err) =>
+                        console.error("Could not open Zotero item", err),
+                      );
+                  },
+                }),
+              }).range(from, to),
+            );
+            return;
+          }
           // An external link reads as its description, the way a Denote link
           // reads as its title -- the URL is machinery, not prose. Marked
           // rather than replaced so the text stays real document text and
@@ -249,7 +354,16 @@ export function denoteLinkPlugin(client: Client): Extension {
             Decoration.mark({
               tagName: "a",
               class: "sb-link sb-org-external-link",
-              attributes: { href: target, title: `Click to visit ${target}` },
+              attributes: {
+                href:
+                  zotero && zoteroUsername
+                    ? zoteroWebUrl(zoteroUsername, zotero[1])
+                    : target,
+                title: zotero
+                  ? (client.zotero.entryForItem(zotero[1])?.title ??
+                    `Zotero item ${zotero[1]}`)
+                  : `Click to visit ${target}`,
+              },
             }).range(textFrom, textTo),
           );
           widgets.push(hiddenMark.range(textTo, to));

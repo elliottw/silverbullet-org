@@ -92,6 +92,12 @@ functions:
     path: "./document.ts:indexDocument"
     events:
       - document:index
+  # The Better BibTeX export is a document; when it changes, so does the
+  # `zotero` index built from it.
+  indexBibliography:
+    path: "./zotero.ts:indexBibliography"
+    events:
+      - document:index
 
   indexPage:
     path: indexer.ts:indexPage
@@ -196,6 +202,33 @@ functions:
     path: ./denote.ts:denoteJournalNextCommand
     command:
       name: "Denote: Journal Next"
+
+  # Zotero -- see zotero.ts.
+  zoteroInsertCitation:
+    path: ./zotero.ts:insertCitationCommand
+    command:
+      name: "Zotero: Insert Citation"
+      requireMode: rw
+      requireEditor: page
+  zoteroNewReferenceNote:
+    path: ./zotero.ts:newReferenceNoteCommand
+    command:
+      name: "Zotero: New Reference Note"
+      requireMode: rw
+  zoteroOpen:
+    path: ./zotero.ts:openUnderCursorCommand
+    command:
+      name: "Zotero: Open"
+      requireEditor: page
+  zoteroToggleDesktop:
+    path: ./zotero.ts:toggleDesktopCommand
+    command:
+      name: "Zotero: Toggle Open in Desktop App"
+  # Called by the editor plug when a citation or zotero: link is followed.
+  zoteroOpenCitekey:
+    path: ./zotero.ts:openCitekey
+  zoteroOpenItemKey:
+    path: ./zotero.ts:openItemKey
 
   # Headers
   headerComplete:

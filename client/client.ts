@@ -64,6 +64,7 @@ import {
   type RealtimeFsEventOrigin,
 } from "./realtime_events.ts";
 import { Space } from "./space.ts";
+import { ZoteroLibrary } from "./zotero_library.ts";
 import { evalStatement } from "./space_lua/eval.ts";
 import {
   parseExpressionString,
@@ -152,6 +153,7 @@ export class Client {
   eventHook: EventHook;
 
   space!: Space;
+  zotero!: ZoteroLibrary;
 
   clientSystem!: ClientSystem;
   eventedSpacePrimitives!: EventedSpacePrimitives;
@@ -466,6 +468,8 @@ export class Client {
     );
 
     this.space = space;
+    this.zotero = new ZoteroLibrary(this);
+    this.zotero.attach();
 
     this.eventHook.addLocalListener(
       "file:changed",

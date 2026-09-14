@@ -300,3 +300,21 @@ test("An unbalanced ${ is left as plain text", () => {
   expect(countOfType(parseOrg(text), "LuaDirective")).toEqual(0);
   expect(renderToText(parseOrg(text))).toEqual(text);
 });
+
+test("An org-cite citation parses into its keys", () => {
+  const tree = parseOrg("See [cite:@graham2004] and [cite/t:see @a;@b p. 3].");
+  const cites = collectNodesOfType(tree, "OrgCitation");
+  expect(cites.length).toEqual(2);
+  expect(renderToText(cites[0])).toEqual("[cite:@graham2004]");
+  expect(
+    collectNodesOfType(cites[1], "OrgCitationKey").map((k) => renderToText(k)),
+  ).toEqual(["@a", "@b"]);
+  // The affix text stays plain text inside the citation.
+  expect(renderToText(cites[1])).toEqual("[cite/t:see @a;@b p. 3]");
+});
+
+test("A bracket with no citekey is not a citation", () => {
+  const tree = parseOrg("[cite:nothing here] and [see] and [[Real Link]]");
+  expect(collectNodesOfType(tree, "OrgCitation").length).toEqual(0);
+  expect(collectNodesOfType(tree, "OrgLink").length).toEqual(1);
+});

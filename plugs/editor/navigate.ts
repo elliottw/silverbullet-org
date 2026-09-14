@@ -31,6 +31,7 @@ import {
   editor,
   markdown,
   space,
+  system,
 } from "@silverbulletmd/silverbullet/syscalls";
 import type { ClickEvent } from "@silverbulletmd/silverbullet/type/client";
 import { tagPrefix } from "../index/constants.ts";
@@ -55,6 +56,8 @@ async function actionClickOrActionEnter(
       "WikiLink",
       "DenoteLink",
       "OrgLink",
+      "OrgCitation",
+      "OrgCitationKey",
       "Link",
       "Image",
       "Autolink",
@@ -168,6 +171,22 @@ async function actionClickOrActionEnter(
         return true;
       }
     }
+    case "OrgCitationKey":
+    case "OrgCitation": {
+      // The key under the cursor, else the citation's first.
+      const keyNode =
+        mdTree.type === "OrgCitationKey"
+          ? mdTree
+          : findNodeOfType(mdTree, "OrgCitationKey");
+      if (!keyNode) {
+        return false;
+      }
+      await system.invokeFunction(
+        "index.zoteroOpenCitekey",
+        renderToText(keyNode).replace(/^@/, ""),
+      );
+      return true;
+    }
     case "DenoteLink": {
       // A Denote link names an identifier, not a path: every note's file name
       // begins with its own identifier, so the page list resolves it.
@@ -201,6 +220,13 @@ async function actionClickOrActionEnter(
         mdTree.children!.find((n) => n.type === "OrgLinkTarget")!,
       );
       if (hasLinkScheme(target)) {
+        // `zotero:KEY` names an item in the bibliography; where it opens is
+        // the Zotero plug's call.
+        const zotero = /^zotero:([A-Z0-9]{8})$/.exec(target);
+        if (zotero) {
+          await system.invokeFunction("index.zoteroOpenItemKey", zotero[1]);
+          return true;
+        }
         // `file:` addresses something in the space; anything else is external.
         const filePath = target.startsWith("file:") ? target.slice(5) : null;
         if (filePath) {

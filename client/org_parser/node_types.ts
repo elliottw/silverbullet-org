@@ -76,6 +76,9 @@ export const orgNodeNames = [
   "OrgLinkDescription",
   "DenoteLink",
   "DenoteLinkTarget",
+  "OrgCitation",
+  "OrgCitationMark",
+  "OrgCitationKey",
   "Emphasis",
   "StrongEmphasis",
   "OrgUnderline",
@@ -147,6 +150,10 @@ export const orgNodeSet = new NodeSet(nodeTypes).extend(
     // a wiki link rather than a URL.
     DenoteLinkTarget: ct.WikiLinkPartTag,
     "DenoteLink/OrgLinkDescription/...": ct.WikiLinkPartTag,
+    // A citation names a bibliography item by citekey, as a Denote link names
+    // a note by identifier; it is styled the same way.
+    OrgCitationMark: t.processingInstruction,
+    OrgCitationKey: ct.WikiLinkPartTag,
     "Emphasis/...": t.emphasis,
     "StrongEmphasis/...": t.strong,
     "OrgUnderline/...": OrgUnderlineTag,

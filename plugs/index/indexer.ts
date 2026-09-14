@@ -13,6 +13,7 @@ import { isValidAnchorName } from "./anchor.ts";
 import { containsConflictMarkers } from "./conflict.ts";
 import { indexData } from "./data.ts";
 import { denoteFrontMatter, indexDenote } from "./denote.ts";
+import { indexCitations } from "./zotero.ts";
 import { extractFrontMatter, type FrontMatter } from "./frontmatter.ts";
 import { indexHeaders } from "./header.ts";
 import { indexItems } from "./item.ts";
@@ -174,6 +175,7 @@ export const allIndexers: IndexerFunction[] = [
   pageIndexPage,
   indexData,
   indexDenote,
+  indexCitations,
   indexItems,
   indexHeaders,
   indexParagraphs,

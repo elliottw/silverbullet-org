@@ -177,7 +177,7 @@ export function parseOrgInline(text: string, offset: number): OrgNode[] {
       }
     }
     if (char === "[") {
-      const link = parseOrgLink(text, i, offset);
+      const link = parseOrgLink(text, i, offset) ?? parseOrgCitation(text, i, offset);
       if (link) {
         result.push(link.node);
         i = link.end - 1;
@@ -259,6 +259,46 @@ function parseLuaDirective(
     }
   }
   return null;
+}
+
+/**
+ * Parses an org-cite citation at `at`: `[cite:@key]`, `[cite:@a;@b]`, or with
+ * a style and affixes, `[cite/t:see @key p. 3]`.
+ *
+ * A citation names an item in a bibliography by its citekey, the way a Denote
+ * link names a note by its identifier. Each `@key` becomes its own node so
+ * the renderer can resolve and decorate them one at a time.
+ */
+function parseOrgCitation(
+  text: string,
+  at: number,
+  offset: number,
+): { node: OrgNode; end: number } | null {
+  const head = /^\[cite(?:\/[\w-]+)?:/.exec(text.slice(at, at + 40));
+  if (!head) {
+    return null;
+  }
+  const close = text.indexOf("]", at + head[0].length);
+  if (close === -1) {
+    return null;
+  }
+  const bodyFrom = at + head[0].length;
+  const body = text.slice(bodyFrom, close);
+  if (!body.includes("@")) {
+    return null;
+  }
+  const children: OrgNode[] = [
+    node("OrgCitationMark", offset + at, offset + bodyFrom),
+  ];
+  for (const m of body.matchAll(/@([\w:.+/-]+)/g)) {
+    const from = offset + bodyFrom + m.index!;
+    children.push(node("OrgCitationKey", from, from + m[0].length));
+  }
+  children.push(node("OrgCitationMark", offset + close, offset + close + 1));
+  return {
+    node: node("OrgCitation", offset + at, offset + close + 1, children),
+    end: close + 1,
+  };
 }
 
 /**
