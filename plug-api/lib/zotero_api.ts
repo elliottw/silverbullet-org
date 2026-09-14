@@ -8,12 +8,17 @@
  */
 import { md5Hex } from "./md5.ts";
 
-const api = "https://api.zotero.org";
+export const zoteroApi = "https://api.zotero.org";
 
-export type ZoteroCredentials = { userId: string; apiKey: string };
+export type ZoteroCredentials = {
+  userId: string;
+  apiKey: string;
+  /** The API's base URL; anything but the real one is a test double. */
+  api?: string;
+};
 
 export async function uploadToZotero(
-  { userId, apiKey }: ZoteroCredentials,
+  { userId, apiKey, api = zoteroApi }: ZoteroCredentials,
   name: string,
   contentType: string,
   content: Uint8Array,
@@ -112,7 +117,7 @@ export async function uploadToZotero(
 
 /** Removes an item -- used to clean up after a test upload. */
 export async function deleteZoteroItem(
-  { userId, apiKey }: ZoteroCredentials,
+  { userId, apiKey, api = zoteroApi }: ZoteroCredentials,
   key: string,
   fetchFn: typeof fetch = fetch,
 ): Promise<boolean> {

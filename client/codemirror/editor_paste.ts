@@ -260,11 +260,11 @@ export function documentExtension(editor: Client) {
     if (!data) {
       return false;
     }
-    // A clipboard item carries no name of its own. It used to be given one
-    // made from the date, which the Denote identifier now says already, so
-    // only the extension is passed on and the identifier names the file.
+    // A clipboard image carries no name worth keeping (`image.png`), so the
+    // identifier names it. A pasted document does have one -- `paper.pdf` --
+    // and it is what the note should call it.
     const fileData: UploadFile = {
-      name: "",
+      name: fileType.startsWith("image/") ? "" : (file.getAsFile()?.name ?? ""),
       contentType: fileType,
       content: new Uint8Array(data),
     };

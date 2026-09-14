@@ -68,6 +68,8 @@ export type ZoteroConfig = {
   /** Numeric user ID and an API key with write and file access, for adding. */
   userId?: string;
   apiKey?: string;
+  /** The API's base URL. Only a test has a reason to change it. */
+  api?: string;
   /** Keyword a reference note carries; `citar-denote` uses `bib`. */
   referenceKeyword: string;
 };
@@ -79,6 +81,7 @@ export async function zoteroConfig(): Promise<ZoteroConfig> {
     username: cfg.username,
     userId: cfg.userId,
     apiKey: cfg.apiKey,
+    api: cfg.api,
     referenceKeyword: cfg.referenceKeyword ?? "bib",
   };
 }
@@ -396,13 +399,13 @@ export async function addFile(
   contentType: string,
   content: Uint8Array,
 ): Promise<string> {
-  const { userId, apiKey } = await zoteroConfig();
+  const { userId, apiKey, api } = await zoteroConfig();
   if (!userId || !apiKey) {
     throw new Error(
       "Set zotero.userId and zotero.apiKey to add files to Zotero",
     );
   }
-  return uploadToZotero({ userId, apiKey }, name, contentType, content);
+  return uploadToZotero({ userId, apiKey, api }, name, contentType, content);
 }
 
 /** Whether adding to Zotero is configured at all. */

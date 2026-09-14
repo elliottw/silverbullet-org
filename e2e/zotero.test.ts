@@ -162,3 +162,139 @@ test.describe("Zotero", () => {
     expect(text).toContain("[cite:@brown2007moral]");
   });
 });
+
+// A stand-in for api.zotero.org that speaks the four-step upload protocol
+// and remembers what it was sent, so the paste path can be driven end to end
+// -- through the plug sandbox and the server's fetch proxy -- without a key.
+import { createServer, type Server } from "node:http";
+
+const MOCK_PORT = 40000 + Math.floor(Math.random() * 20000);
+
+function mockZotero(): Promise<{
+  server: Server;
+  url: string;
+  calls: string[];
+  uploads: Buffer[];
+}> {
+  const calls: string[] = [];
+  const uploads: Buffer[] = [];
+  const server = createServer((req, res) => {
+    const chunks: Buffer[] = [];
+    req.on("data", (c) => chunks.push(c));
+    req.on("end", () => {
+      const body = Buffer.concat(chunks);
+      calls.push(
+        `${req.method} ${req.url} key=${req.headers["zotero-api-key"]}`,
+      );
+      if (req.method === "POST" && req.url === "/users/42/items") {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ successful: { "0": { key: "MOCKKEY1" } } }));
+      } else if (
+        req.url === "/users/42/items/MOCKKEY1/file" &&
+        body.toString().startsWith("md5=")
+      ) {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify({
+            url: `http://127.0.0.1:${(server.address() as any).port}/upload`,
+            contentType: "multipart/form-data; boundary=xx",
+            prefix: "--xx\r\n",
+            suffix: "\r\n--xx--",
+            uploadKey: "UPKEY",
+          }),
+        );
+      } else if (req.url === "/upload") {
+        uploads.push(body);
+        res.writeHead(201);
+        res.end();
+      } else if (
+        req.url === "/users/42/items/MOCKKEY1/file" &&
+        body.toString().startsWith("upload=")
+      ) {
+        res.writeHead(204);
+        res.end();
+      } else {
+        res.writeHead(404);
+        res.end();
+      }
+    });
+  });
+  return new Promise((resolve) =>
+    server.listen(MOCK_PORT, "127.0.0.1", () =>
+      resolve({
+        server,
+        url: `http://127.0.0.1:${MOCK_PORT}`,
+        calls,
+        uploads,
+      }),
+    ),
+  );
+}
+
+test.describe("Zotero: adding a file", () => {
+  let mock: Awaited<ReturnType<typeof mockZotero>>;
+  test.beforeAll(async () => {
+    mock = await mockZotero();
+  });
+  test.afterAll(() => {
+    mock.server.close();
+  });
+
+  test.use({
+    spaceFiles: {
+      "index.md": "# Home\n",
+      "Paste.org": "#+title: Paste\n\nBefore.\n",
+      "CONFIG.md":
+        "```space-lua\n" +
+        `config.set("zotero", { username = "u", userId = "42", apiKey = "k", api = "http://127.0.0.1:${MOCK_PORT}" })\n` +
+        "```\n",
+    },
+  });
+
+  test("a pasted PDF goes to Zotero and the note links to it; an image stays", async ({
+    sbPage,
+    sbServer,
+  }) => {
+    await gotoSilverBulletPage(sbPage, sbServer, "Paste.org");
+    const editor = sbPage.locator("#sb-editor .cm-content");
+    await expect(editor).toContainText("Before.");
+    await sbPage.waitForTimeout(2500); // config to settle
+
+    await editor.click();
+    await sbPage.keyboard.press("Control+End");
+    await sbPage.evaluate(() => {
+      const dt = new DataTransfer();
+      dt.items.add(
+        new File([new TextEncoder().encode("%PDF-1.4 hello")], "paper.pdf", {
+          type: "application/pdf",
+        }),
+      );
+      document.querySelector("#sb-editor .cm-content")!.dispatchEvent(
+        new ClipboardEvent("paste", {
+          clipboardData: dt,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+
+    await expect
+      .poll(
+        () =>
+          sbPage.evaluate(() =>
+            (globalThis as any).sbRuntime.evalLuaScript(
+              "return editor.getText()",
+            ),
+          ),
+        { timeout: 30_000 },
+      )
+      .toContain("[[zotero:MOCKKEY1][paper.pdf]]");
+    // All four steps, with the key, and the bytes wrapped as instructed.
+    expect(
+      mock.calls.filter((c) => c.includes("key=k")).length,
+    ).toBeGreaterThanOrEqual(3);
+    expect(mock.uploads.length).toEqual(1);
+    expect(mock.uploads[0].toString()).toContain("%PDF-1.4 hello");
+    expect(mock.uploads[0].toString().startsWith("--xx\r\n")).toBe(true);
+  });
+});

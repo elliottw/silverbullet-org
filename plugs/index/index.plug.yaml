@@ -1,4 +1,7 @@
 name: index
+# Adding a file to Zotero calls its Web API from the sandbox.
+requiredPermissions:
+  - fetch
 functions:
   # Public API
   extractFrontmatter:
