@@ -36,6 +36,7 @@ import type {
   PageMeta,
 } from "@silverbulletmd/silverbullet/type/index";
 import { linkSyntaxFor } from "@silverbulletmd/silverbullet/lib/link_syntax";
+import { uploadToZotero } from "@silverbulletmd/silverbullet/lib/zotero_api";
 import { createDenoteNote, invalidateDenoteIdentifiers } from "./denote.ts";
 import type { FrontMatter } from "./frontmatter.ts";
 import type { RelationObject } from "./relation.ts";
@@ -376,4 +377,67 @@ export async function openUnderCursorCommand() {
   const link = /zotero:([A-Z0-9]{8})/.exec(around);
   if (link) return openItemKey(link[1]);
   await editor.flashNotification("No citation under the cursor", "info");
+}
+
+// ---------------------------------------------------------------------------
+// Adding a file
+// ---------------------------------------------------------------------------
+
+/**
+ * Puts a file into the Zotero library as a standalone attachment and returns
+ * its item key -- the key a `[[zotero:KEY]]` link takes, and the one the
+ * zotero.org reader opens. The desktop app then syncs the item down like any
+ * other; metadata retrieval for a PDF is a right-click there when it suits.
+ *
+ * The fetch is the plug sandbox's, which the server proxies -- no CORS.
+ */
+export async function addFile(
+  name: string,
+  contentType: string,
+  content: Uint8Array,
+): Promise<string> {
+  const { userId, apiKey } = await zoteroConfig();
+  if (!userId || !apiKey) {
+    throw new Error(
+      "Set zotero.userId and zotero.apiKey to add files to Zotero",
+    );
+  }
+  return uploadToZotero({ userId, apiKey }, name, contentType, content);
+}
+
+/** Whether adding to Zotero is configured at all. */
+export async function canAddFiles(): Promise<boolean> {
+  const { userId, apiKey } = await zoteroConfig();
+  return !!(userId && apiKey);
+}
+
+/** The link to write into a note for an item just added. */
+export async function linkForItem(
+  key: string,
+  name: string,
+  page: string,
+): Promise<string> {
+  const { username } = await zoteroConfig();
+  if (linkSyntaxFor(page) === "org") {
+    return `[[zotero:${key}][${name}]]`;
+  }
+  return username
+    ? `[${name}](${zoteroWebUrl(username, key)})`
+    : `[${name}](${zoteroSelectUrl(key)})`;
+}
+
+/** `Zotero: Add File` — the upload dialog, into Zotero, a link at the cursor. */
+export async function addFileCommand() {
+  if (!(await canAddFiles())) {
+    await editor.flashNotification(
+      "Set zotero.userId and zotero.apiKey to add files to Zotero",
+      "error",
+    );
+    return;
+  }
+  const file = await editor.uploadFile();
+  await editor.flashNotification(`Adding ${file.name} to Zotero…`, "info");
+  const key = await addFile(file.name, file.contentType, file.content);
+  const page = await editor.getCurrentPage();
+  await editor.insertAtCursor(await linkForItem(key, file.name, page));
 }

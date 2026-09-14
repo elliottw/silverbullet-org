@@ -224,6 +224,19 @@ functions:
     path: ./zotero.ts:toggleDesktopCommand
     command:
       name: "Zotero: Toggle Open in Desktop App"
+  zoteroAddFile:
+    path: ./zotero.ts:addFileCommand
+    command:
+      name: "Zotero: Add File"
+      requireMode: rw
+      requireEditor: page
+  # Called by the paste and upload paths: a file into Zotero, a link back.
+  zoteroAdd:
+    path: ./zotero.ts:addFile
+  zoteroCanAddFiles:
+    path: ./zotero.ts:canAddFiles
+  zoteroLinkForItem:
+    path: ./zotero.ts:linkForItem
   # Called by the editor plug when a citation or zotero: link is followed.
   zoteroOpenCitekey:
     path: ./zotero.ts:openCitekey

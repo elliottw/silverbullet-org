@@ -296,6 +296,44 @@ export function documentExtension(editor: Client) {
       return;
     }
 
+    // A document goes to Zotero when that is set up; an image stays beside
+    // the note, where it can be shown inline. Reference material has a
+    // library of its own; a screenshot is part of the note.
+    const isImage = file.contentType.startsWith("image/");
+    const invoke = (name: string, args: unknown[]) =>
+      editor.clientSystem.localSyscall("system.invokeFunction", [
+        name,
+        ...args,
+      ]);
+    if (!isImage && (await invoke("index.zoteroCanAddFiles", []))) {
+      const name = file.name || `pasted-${Date.now()}${fallbackExtension}`;
+      editor.ui.flashNotification(`Adding ${name} to Zotero…`, "info");
+      try {
+        const key: string = await invoke("index.zoteroAdd", [
+          name,
+          file.contentType,
+          file.content,
+        ]);
+        const link: string = await invoke("index.zoteroLinkForItem", [
+          key,
+          name,
+          editor.currentPath(),
+        ]);
+        editor.editorView.dispatch({
+          changes: {
+            insert: link,
+            from: editor.editorView.state.selection.main.from,
+          },
+        });
+      } catch (e: any) {
+        editor.ui.flashNotification(
+          `Could not add to Zotero: ${e.message}`,
+          "error",
+        );
+      }
+      return;
+    }
+
     const name: string = await editor.clientSystem.localSyscall(
       "system.invokeFunction",
       [

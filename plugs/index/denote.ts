@@ -55,6 +55,7 @@ import type { FrontMatter } from "./frontmatter.ts";
 import { batchRenameFiles } from "./refactor.ts";
 import type { RelationObject } from "./relation.ts";
 import { buildLineIndex, extractSnippet } from "./snippet.ts";
+import { pickEntry } from "./zotero.ts";
 
 export type DenoteObject = ObjectValue<{
   tag: "denote";
@@ -641,6 +642,7 @@ export async function denoteCreateFromLink(option: {
 const createNoteOption = "\uFF0B  Create note\u2026";
 
 const linkToUrlOption = "\uD83D\uDD17  Link to URL\u2026";
+const citeOption = "\uD83D\uDCDA  Cite a Zotero item\u2026";
 
 /** Org's two link node types: `[[denote:ID][…]]` and everything else. */
 const orgLinkTypes = ["DenoteLink", "OrgLink"];
@@ -672,7 +674,11 @@ export function linkAtPos(tree: ParseTree, pos: number): ParseTree | undefined {
  * a page name, which Markdown and Org spell differently. A link with no
  * description shows its target, which is what Org does too.
  */
-export function linkFor(syntax: LinkSyntax, target: string, description: string) {
+export function linkFor(
+  syntax: LinkSyntax,
+  target: string,
+  description: string,
+) {
   if (!hasLinkScheme(target)) {
     return pageLink(syntax, target, description || undefined);
   }
@@ -795,6 +801,11 @@ export async function denoteLinkOrCreateCommand(): Promise<void> {
         description: "somewhere outside this space",
         orderId: -1,
       },
+      {
+        name: citeOption,
+        description: "from the bibliography",
+        orderId: -1,
+      },
       // A note never links to itself.
       ...notes
         .filter((note) => note.name !== current)
@@ -812,6 +823,13 @@ export async function denoteLinkOrCreateCommand(): Promise<void> {
 
   if (choice.name === linkToUrlOption) {
     return insertUrlLink(syntax, from, to, "", selected);
+  }
+  if (choice.name === citeOption) {
+    const entry = await pickEntry();
+    if (entry) {
+      await editor.replaceRange(from, to, `[cite:@${entry.citekey}]`);
+    }
+    return;
   }
 
   let identifier: string;

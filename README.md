@@ -61,6 +61,9 @@ and the arrow-key forms work everywhere.
 | `Denote: New Note` | `denote` |
 | `Denote: New Note with Signature` | `denote-signature` |
 | `Denote: Insert or Edit Link` (`Alt-i`) | `denote-link-or-create`, `org-insert-link` |
+| `Zotero: Insert Citation` | `citar-insert-citation` |
+| `Zotero: New Reference Note` | `citar-denote-create-note` |
+| `Zotero: Add File` | — |
 | `Denote: Toggle Link Display` | `org-toggle-link-display` |
 | `Denote: Rename File from Front Matter` | `denote-rename-file-using-front-matter` |
 | `Denote: Update Dynamic Blocks` | `org-update-all-dblocks` |
@@ -153,28 +156,73 @@ it claims the key first. Whether there is a link to follow is therefore decided
 here, synchronously against the syntax tree, so the key can be accepted or
 declined at once.
 
-## Attachments
+## Attachments and Zotero
 
-A pasted, dropped or uploaded file is named the way Denote names one, with no
-prompt:
+Two kinds of file, two homes.
+
+**An image is part of the note.** Pasted, dropped or uploaded, it is saved
+beside the note under a Denote name, with no prompt, and shown inline:
 
     Screenshot 2026-08-25 at 3.16.23 PM.png
     -> 20260905T082013--screenshot-2026-08-25-at-31623-pm.png
 
-`denote-rename-file` renames any file, note or not — the scheme *is* the name,
-and only a note additionally carries front matter. So an attachment gets the
-same `IDENTIFIER--title.ext`, its title sluggified from whatever name it
-arrived under. A clipboard image, having no name of its own, is named by its
-identifier alone.
+`denote-rename-file` renames any file, note or not — the scheme *is* the name.
+A clipboard image, having no name of its own, is named by its identifier alone.
 
-Upstream prompts for a filename on every paste. It no longer does here, because
-there is nothing left to decide: the identifier comes from the clock and the
-title from the file. The name stays editable afterwards, and renaming it
-updates the links — which is the whole point of a Denote name.
+**A document is reference material, and lives in Zotero.** When Zotero is
+configured, a pasted, dropped or uploaded PDF (or anything else that is not an
+image) goes into your Zotero library through its Web API, and the note gets
+`[[zotero:KEY][name]]` at the cursor. The desktop app syncs it down like any
+other item; *Retrieve Metadata* there whenever you get to it. Without Zotero
+configured, documents are saved beside the note like images.
 
-Identifiers are unique across the **library**, not merely across its notes, so
-an attachment and a note can never claim the same one. A `denote:` link
-therefore resolves to an attachment as readily as to a note.
+### Citing
+
+The bibliography is Better BibTeX's export of the Zotero library, a `.bib`
+kept in the space (`zotero.bibliography`, default `zotero.bib`) — set BBT's
+*Keep updated* export to point there and it stays current. Every `file` line
+in it names an attachment's storage key, which is exactly what a zotero.org
+URL takes, so that one text file joins citekey to title, year and file.
+
+| Written | Shown | Opens |
+|---|---|---|
+| `[cite:@graham2004hackers]` | Graham 2004 | the item's file at zotero.org |
+| `[cite/t:see @a;@b p. 3]` | A 2001; B 2002 | the first item |
+| `[[zotero:PSKBJDH2]]` | the item's title | that attachment at zotero.org |
+| `[[zotero:PSKBJDH2][the PDF]]` | the PDF | that attachment at zotero.org |
+
+zotero.org's reader opens a file on a machine with nothing installed. On a
+device that has the app, `Zotero: Toggle Open in Desktop App` sends
+citations there instead — a per-device preference, since the same space is
+read from a Mac with Zotero and a work machine without one. An item with no
+file only opens in the app.
+
+`Zotero: Insert Citation` (also a row in `Alt-i`) picks from the
+bibliography. `Zotero: New Reference Note` creates a Denote note about an
+item, carrying `#+reference: citekey` and the `bib` keyword — the
+`citar-denote` convention, so `citar-denote-open-note` in Emacs finds the same
+note. Citations and `#+reference:` lines are indexed as relations, which is
+what gives a reference note its "cited in" list.
+
+### Configuration
+
+```lua
+config.set("zotero", {
+  username = "yourname",      -- for zotero.org URLs
+  userId = "1234567",         -- from zotero.org/settings/keys
+  apiKey = "…",               -- write + file access; needed only for adding
+  bibliography = "zotero.bib",
+  referenceKeyword = "bib",
+})
+```
+
+On the Emacs side, `[cite:@key]` is org-cite, which `citar` reads from the
+same `.bib`; a `zotero:` link wants one line:
+
+```elisp
+(org-link-set-parameters "zotero" :follow
+  (lambda (key) (browse-url (concat "zotero://select/library/items/" key))))
+```
 
 ## Journal
 

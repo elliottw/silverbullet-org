@@ -54,6 +54,31 @@ export async function saveFile(file: UploadFile) {
     return;
   }
 
+  // A document goes to Zotero when that is set up; an image stays beside the
+  // note, where it can be shown inline.
+  if (
+    !file.contentType.startsWith("image/") &&
+    (await system.invokeFunction("index.zoteroCanAddFiles"))
+  ) {
+    await editor.flashNotification(`Adding ${file.name} to Zotero…`, "info");
+    const key: string = await system.invokeFunction(
+      "index.zoteroAdd",
+      file.name,
+      file.contentType,
+      file.content,
+    );
+    if ((await editor.getCurrentEditor()) === "page") {
+      const link: string = await system.invokeFunction(
+        "index.zoteroLinkForItem",
+        key,
+        file.name,
+        await editor.getCurrentPage(),
+      );
+      await editor.insertAtCursor(link);
+    }
+    return;
+  }
+
   const name = await denoteName(file);
   if (name === undefined) {
     return;
