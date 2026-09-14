@@ -6,7 +6,10 @@
  * once the file list is known, and again whenever that file changes -- BBT
  * rewrites it on every library change, and the sync brings it in.
  */
-import { parseBibtex, type BibEntry } from "@silverbulletmd/silverbullet/lib/bibtex";
+import {
+  parseBibtex,
+  type BibEntry,
+} from "@silverbulletmd/silverbullet/lib/bibtex";
 import type { Client } from "./client.ts";
 
 export class ZoteroLibrary {
@@ -17,28 +20,36 @@ export class ZoteroLibrary {
   constructor(private client: Client) {}
 
   get bibliographyName(): string {
-    return this.client.config.get<{ bibliography?: string }>("zotero", {})
-      .bibliography ?? "zotero.bib";
+    return (
+      this.client.config.get<{ bibliography?: string }>("zotero", {})
+        .bibliography ?? "zotero.bib"
+    );
   }
 
   /** Wire up: load now, reload on change. Safe to call before boot finishes. */
   attach() {
     const hook = this.client.eventHook;
+    // The file list arrives after boot; nothing can be read before it does.
     hook.addLocalListener("file:listed", () => void this.reload());
     hook.addLocalListener("file:changed", (name: string) => {
       if (name === this.bibliographyName) void this.reload();
     });
-    void this.reload();
   }
 
   async reload() {
     const name = this.bibliographyName;
     let entries: BibEntry[] = [];
-    try {
-      const { data } = await this.client.space.readDocument(name);
-      entries = parseBibtex(new TextDecoder().decode(data));
-    } catch {
-      // No bibliography yet: citations render as their citekey.
+    // Only a file the space is known to hold is read. A fetch for one that
+    // does not exist is not a harmless miss here: the client reads a failed
+    // fetch as having gone offline, and completion and the page list go
+    // with it. A space with no bibliography must cost nothing.
+    if (this.client.clientSystem.allKnownFiles.has(name)) {
+      try {
+        const { data } = await this.client.space.readDocument(name);
+        entries = parseBibtex(new TextDecoder().decode(data));
+      } catch {
+        // Unreadable: citations render as their citekey.
+      }
     }
     this.byCitekey = new Map(entries.map((e) => [e.citekey, e]));
     this.byItemKey = new Map(
