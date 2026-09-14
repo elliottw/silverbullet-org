@@ -7,6 +7,10 @@ use axum::response::{IntoResponse, Response};
 
 use crate::state::ServerState;
 
+/// Bodies up to this size are buffered so they can be sent with a
+/// `Content-Length`; anything larger streams (chunked), as before.
+const MAX_BUFFERED_BODY: usize = 512 * 1024 * 1024;
+
 /// Derive the proxy target URL: `http://` for localhost-ish hosts, `https://`
 /// otherwise, with the original query string appended.
 pub(crate) fn proxy_target_url(path: &str, query: Option<&str>) -> String {
@@ -76,11 +80,32 @@ pub async fn handle_proxy(
     for (k, v) in fwd_headers {
         rb = rb.header(k, v);
     }
-    // Forward the request body as a stream (so large uploads aren't buffered in
-    // memory). GET/HEAD carry no body, so none is attached there — avoiding a
-    // spurious chunked body on a bodyless request.
+    // GET/HEAD carry no body, so none is attached there — avoiding a spurious
+    // chunked body on a bodyless request.
     if !matches!(method, Method::GET | Method::HEAD) {
-        rb = rb.body(reqwest::Body::wrap_stream(body.into_data_stream()));
+        // When the caller said how long the body is, send it with a
+        // `Content-Length` rather than as a chunked stream: some upstreams --
+        // S3's form upload, which is where Zotero puts a file -- refuse
+        // `Transfer-Encoding: chunked` outright. That means buffering the body,
+        // which for a browser-sized upload is fine; a body of unknown length
+        // still streams.
+        let declared_len = headers
+            .get(axum::http::header::CONTENT_LENGTH)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.parse::<usize>().ok());
+        match declared_len {
+            Some(len) if len <= MAX_BUFFERED_BODY => {
+                match axum::body::to_bytes(body, len).await {
+                    Ok(bytes) => rb = rb.body(bytes),
+                    Err(e) => {
+                        tracing::warn!("Proxy could not read request body: {e}");
+                        return (StatusCode::BAD_REQUEST, "Could not read request body")
+                            .into_response();
+                    }
+                }
+            }
+            _ => rb = rb.body(reqwest::Body::wrap_stream(body.into_data_stream())),
+        }
     }
 
     match rb.send().await {

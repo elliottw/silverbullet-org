@@ -204,6 +204,16 @@ function mockZotero(): Promise<{
           }),
         );
       } else if (req.url === "/upload") {
+        // S3's form upload refuses a chunked body; what arrives here must be
+        // framed with a Content-Length, as the real file store demands.
+        if (
+          !req.headers["content-length"] ||
+          req.headers["transfer-encoding"]
+        ) {
+          res.writeHead(411);
+          res.end();
+          return;
+        }
         uploads.push(body);
         res.writeHead(201);
         res.end();
