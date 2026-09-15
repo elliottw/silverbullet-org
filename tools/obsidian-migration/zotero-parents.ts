@@ -177,8 +177,18 @@ async function fromCrossref(
       "proceedings-article": "conferencePaper",
       report: "report",
     };
+    const itemType = types[w.type] ?? "document";
+    const container = w["container-title"]?.[0];
+    // The containing work's field is named per type: a chapter's book is
+    // `bookTitle`, a paper's proceedings `proceedingsTitle`, an article's
+    // journal `publicationTitle`; a book or report has none.
+    const containerField: Record<string, string> = {
+      journalArticle: "publicationTitle",
+      bookSection: "bookTitle",
+      conferencePaper: "proceedingsTitle",
+    };
     return {
-      itemType: types[w.type] ?? "document",
+      itemType,
       title: (w.title?.[0] ?? "").trim() || undefined,
       creators: (w.author ?? []).map((a: any) => ({
         creatorType: "author",
@@ -188,8 +198,8 @@ async function fromCrossref(
       date: w.issued?.["date-parts"]?.[0]?.join("-"),
       fields: {
         DOI: doi,
-        ...(w["container-title"]?.[0]
-          ? { publicationTitle: w["container-title"][0] }
+        ...(container && containerField[itemType]
+          ? { [containerField[itemType]]: container }
           : {}),
       },
     };
