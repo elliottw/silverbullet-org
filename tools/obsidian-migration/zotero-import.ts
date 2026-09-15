@@ -1,14 +1,18 @@
 /**
- * Obsidian → Zotero: the vault's documents into the Zotero library, filed
- * under the `2026` collection in the Johnny Decimal shape of the folders
- * they came from.
+ * Obsidian → Zotero: the vault's documents into the Zotero library, and the
+ * vault's folder tree, faithfully, as collections under `2026`.
+ *
+ * Every folder becomes a collection, empty or not -- the tree is the point,
+ * and a folder that holds only notes still has a place in it. The only
+ * folders left out are code: a repository's `.git`, a `.nosync` project, a
+ * scripts folder. Those were the earlier mirror's mistake.
  *
  * Documents only. An image stays beside its note, where it is shown inline;
- * a code repository is not a document. Everything else that is not a note
- * -- PDFs, office files, scans, saved web pages, videos -- goes in, each as
- * a standalone attachment titled after its file, in a collection named after
- * its folder. A file the library already holds (matched by md5) is filed,
- * not uploaded again.
+ * everything else that is not a note -- PDFs, office files, scans, saved web
+ * pages, videos -- goes in as a standalone attachment titled after its file,
+ * in the collection of its folder. A file the library already holds
+ * (matched by md5) is filed, not uploaded again. A file filed under the
+ * wrong collection by an earlier run is moved.
  *
  *     npx tsx tools/obsidian-migration/zotero-import.ts            # dry run: the plan
  *     npx tsx tools/obsidian-migration/zotero-import.ts --apply    # do it (resumable)
@@ -133,53 +137,102 @@ async function loadLibrary() {
   return { collections, byMd5 };
 }
 
-/** Collection key for a path of names under the root, creating as needed. */
-function collectionResolver(collections: Collection[]) {
+/**
+ * Collection key for a path of names under the root, creating as needed.
+ *
+ * A folder's collection may already exist somewhere else: an earlier run
+ * filed it two levels deep, or it was moved by hand. `owners` says which
+ * collection holds a vault folder's files; such a collection is moved under
+ * its rightful parent rather than duplicated. Only that exact match moves a
+ * collection -- many folders share a name (`assets`, `00 meta`).
+ */
+function collectionResolver(
+  collections: Collection[],
+  owners: Map<string, string>,
+) {
   const byParentName = new Map<string, Collection>();
+  const byKey = new Map<string, Collection>();
   const keyOf = (c: Collection) =>
     `${c.data.parentCollection || ""}/${c.data.name}`;
-  for (const c of collections) byParentName.set(keyOf(c), c);
+  for (const c of collections) {
+    byParentName.set(keyOf(c), c);
+    byKey.set(c.key, c);
+  }
   const created: string[] = [];
+  const moved: string[] = [];
+  let fakes = 0;
   return {
     created,
+    moved,
     async resolve(path: string[]): Promise<string> {
       let parent: string | false = false;
-      for (const name of path) {
+      for (let i = 0; i < path.length; i++) {
+        const name = path[i];
         const existing = byParentName.get(`${parent || ""}/${name}`);
         if (existing) {
           parent = existing.key;
           continue;
         }
-        if (!apply) {
-          const fake = `NEW:${path.slice(0, path.indexOf(name) + 1).join("/")}`;
-          byParentName.set(`${parent || ""}/${name}`, {
-            key: fake,
-            version: 0,
-            data: { name, parentCollection: parent },
-            meta: { numItems: 0, numCollections: 0 },
-          });
-          created.push(path.slice(0, path.indexOf(name) + 1).join(" / "));
-          parent = fake;
+        const vaultDir = path.slice(1, i + 1).join("/");
+        const ownerKey = owners.get(vaultDir);
+        const owner = ownerKey ? byKey.get(ownerKey) : undefined;
+        if (
+          owner &&
+          owner.data.name === name &&
+          owner.data.parentCollection !== parent
+        ) {
+          // The collection exists under the wrong parent: move it.
+          if (apply) {
+            const res = await zfetch(`/collections/${owner.key}`, {
+              method: "PATCH",
+              headers: {
+                "Content-Type": "application/json",
+                "If-Unmodified-Since-Version": String(owner.version),
+              },
+              body: JSON.stringify({ parentCollection: parent }),
+            });
+            if (res.status !== 204) {
+              throw new Error(
+                `Could not move ${name}: ${res.status} ${await res.text()}`,
+              );
+            }
+            owner.version = Number(
+              res.headers.get("Last-Modified-Version") ?? owner.version,
+            );
+          }
+          byParentName.delete(keyOf(owner));
+          owner.data.parentCollection = parent;
+          byParentName.set(keyOf(owner), owner);
+          moved.push(path.slice(0, i + 1).join(" / "));
+          parent = owner.key;
           continue;
         }
-        const res = await zfetch("/collections", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify([{ name, parentCollection: parent }]),
-        });
-        const json = await res.json();
-        const key: string | undefined = json?.successful?.["0"]?.key;
-        if (!key)
-          throw new Error(
-            `Could not create collection ${name}: ${res.status} ${JSON.stringify(json)}`,
-          );
-        byParentName.set(`${parent || ""}/${name}`, {
+        let key: string;
+        if (apply) {
+          const res = await zfetch("/collections", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify([{ name, parentCollection: parent }]),
+          });
+          const json = await res.json();
+          key = json?.successful?.["0"]?.key;
+          if (!key) {
+            throw new Error(
+              `Could not create collection ${name}: ${res.status} ${JSON.stringify(json)}`,
+            );
+          }
+        } else {
+          key = `NEW:${++fakes}`;
+        }
+        const c: Collection = {
           key,
           version: 0,
           data: { name, parentCollection: parent },
           meta: { numItems: 0, numCollections: 0 },
-        });
-        created.push(path.slice(0, path.indexOf(name) + 1).join(" / "));
+        };
+        byParentName.set(keyOf(c), c);
+        byKey.set(key, c);
+        created.push(path.slice(0, i + 1).join(" / "));
         parent = key;
       }
       return parent as string;
@@ -242,36 +295,52 @@ function contentTypeOf(name: string): string {
   );
 }
 
-/**
- * The collection path for a library-relative folder:
- * `2026 / 21 iteam / 14 landslide mediation`.
- *
- * A numbered folder is a Johnny Decimal place and always a collection. An
- * unnumbered one is a collection only when it holds enough to be worth a
- * shelf; Obsidian's folder-per-note attachments (`04 chronicle / Aaron iw
- * convo`, one PDF) file into the folder above instead.
- */
-function collectionPathFor(
-  targetDir: string,
-  docsBelow: Map<string, number>,
-): string[] {
-  const parts = targetDir.split("/").filter(Boolean);
-  const kept: string[] = [];
-  parts.forEach((part, i) => {
-    const prefix = parts.slice(0, i + 1).join("/");
-    const numbered = /^\d{2}(\.\d{2})? /.test(part);
-    if (
-      numbered ||
-      i === 0 ||
-      (docsBelow.get(prefix) ?? 0) >= MIN_DOCS_FOR_COLLECTION
-    ) {
-      kept.push(part);
-    }
-  });
-  return [ROOT_COLLECTION, ...(kept.length ? kept : ["00 inbox"])];
+/** The collection path for a vault folder, verbatim: `2026 / 20-29 Missions / 21 iteam / …`. */
+function collectionPathFor(vaultDir: string): string[] {
+  const parts = vaultDir.split("/").filter(Boolean);
+  return [ROOT_COLLECTION, ...parts];
 }
 
-const MIN_DOCS_FOR_COLLECTION = 4;
+const skipDirs = [
+  /^\.obsidian/,
+  /^\.trash$/,
+  /^\.claude$/,
+  /^reMarkable$/,
+  /^\.git$/,
+  /\.nosync$/,
+  /\.icon$/,
+];
+const projectMarkers = [
+  ".git",
+  "package.json",
+  "Cargo.toml",
+  "pyproject.toml",
+  "requirements.txt",
+  "go.mod",
+];
+
+/** Whether a vault folder is code, and so no part of the tree. */
+function isCodeDir(abs: string, name: string): boolean {
+  if (skipDirs.some((r) => r.test(name))) return true;
+  const names = readdirSync(abs);
+  // A JD category that happens to be a repository (the Pittsburgh book is)
+  // is still a place; only a project *inside* the tree is code.
+  const numbered = /^\d{2}(\.\d{2})? |^\d+-\d+ /.test(name);
+  if (!numbered && names.some((n) => projectMarkers.includes(n))) return true;
+  return !numbered && names.filter((n) => codeMarkers.test(n)).length >= 3;
+}
+
+/** Every folder in the vault that belongs in the tree, as vault-relative paths. */
+function* vaultDirs(dir: string, rel = ""): Generator<string> {
+  for (const e of readdirSync(dir, { withFileTypes: true })) {
+    if (!e.isDirectory()) continue;
+    const abs = join(dir, e.name);
+    if (isCodeDir(abs, e.name)) continue;
+    const r = rel ? `${rel}/${e.name}` : e.name;
+    yield r;
+    yield* vaultDirs(abs, r);
+  }
+}
 
 function* filesOf(dir: string, rel = ""): Generator<string> {
   for (const e of readdirSync(dir, { withFileTypes: true })) {
@@ -299,16 +368,7 @@ function plan(
     candidates.push([source, targetPath]);
   };
   const place = () => {
-    // How many documents sit at or below each folder, for the shelf rule.
-    const docsBelow = new Map<string, number>();
-    for (const [, targetPath] of candidates) {
-      const parts = targetPath.split("/").slice(0, -1);
-      for (let i = 1; i <= parts.length; i++) {
-        const prefix = parts.slice(0, i).join("/");
-        docsBelow.set(prefix, (docsBelow.get(prefix) ?? 0) + 1);
-      }
-    }
-    for (const [source, targetPath] of candidates) {
+    for (const [source] of candidates) {
       const name = source.split("/").pop()!;
       const abs = join(manifest.vault, source);
       const size = statSync(abs).size;
@@ -318,11 +378,11 @@ function plan(
       }
       const md5 = md5Hex(new Uint8Array(readFileSync(abs)));
       const existing = byMd5.get(md5);
-      const targetDir = targetPath.split("/").slice(0, -1).join("/");
+      const vaultDir = source.split("/").slice(0, -1).join("/");
       planned.push({
         source,
         name,
-        collectionPath: collectionPathFor(targetDir, docsBelow),
+        collectionPath: collectionPathFor(vaultDir),
         md5,
         size,
         contentType: contentTypeOf(name),
@@ -432,10 +492,29 @@ async function main() {
     `  ${collections.length} collections, ${byMd5.size} attachments with md5`,
   );
 
-  if (cleanup) return deleteEmptyCollections(collections);
+  if (cleanup) return deleteEmptyCollections(collections, manifest.vault);
 
   const { planned, skipped } = plan(manifest, byMd5);
-  const resolver = collectionResolver(collections);
+  // Which collection currently holds each vault folder's files, per the map.
+  const owners = new Map<string, string>();
+  const tally = new Map<string, Map<string, number>>();
+  for (const [source, { collection }] of Object.entries(map)) {
+    const dir = source.split("/").slice(0, -1).join("/");
+    const t = tally.get(dir) ?? new Map<string, number>();
+    t.set(collection, (t.get(collection) ?? 0) + 1);
+    tally.set(dir, t);
+  }
+  for (const [dir, t] of tally) {
+    owners.set(dir, [...t].sort((a, b) => b[1] - a[1])[0][0]);
+  }
+  const resolver = collectionResolver(collections, owners);
+
+  // The whole tree first, parents before children, empty folders included.
+  const dirs = [...vaultDirs(manifest.vault)].sort();
+  for (const dir of dirs) await resolver.resolve(collectionPathFor(dir));
+  console.log(
+    `tree: ${dirs.length} folders; ${resolver.created.length} collections to create, ${resolver.moved.length} to move`,
+  );
   const bytes = planned
     .filter((p) => p.action === "upload")
     .reduce((n, p) => n + p.size, 0);
@@ -474,10 +553,43 @@ async function main() {
   writeFileSync(join(config.out, "zotero-plan.md"), lines.join("\n"));
   console.log(lines.slice(0, 12).join("\n"));
   console.log(`\nFull plan in ${join(config.out, "zotero-plan.md")}`);
+  // Files an earlier run put in the wrong collection move to the right one.
+  let refiled = 0;
+  for (const p of planned) {
+    const entry = map[p.source];
+    if (!entry) continue;
+    const exact = await resolver.resolve(p.collectionPath);
+    if (entry.collection === exact) continue;
+    refiled++;
+    if (!apply) continue;
+    const res = await zfetch(`/items/${entry.key}`);
+    const item = await res.json();
+    const version = res.headers.get("Last-Modified-Version") ?? "";
+    const current: string[] = item.data.collections ?? [];
+    const next = [...current.filter((c) => c !== entry.collection), exact];
+    const patch = await zfetch(`/items/${entry.key}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        "If-Unmodified-Since-Version": version,
+      },
+      body: JSON.stringify({ collections: next }),
+    });
+    if (patch.status !== 204) {
+      console.log(
+        `  FAILED to refile ${p.source}: ${patch.status} ${await patch.text()}`,
+      );
+      continue;
+    }
+    entry.collection = exact;
+    console.log(`  refiled ${entry.key}  ${p.source}`);
+  }
+  console.log(`${refiled} files ${apply ? "refiled" : "to refile"}`);
+  if (apply) writeFileSync(mapPath, JSON.stringify(map, null, 1));
+
   if (!apply) {
-    for (const p of planned) await resolver.resolve(p.collectionPath);
     console.log(
-      `Would create ${resolver.created.length} collections. Dry run; pass --apply to write.`,
+      `Would create ${resolver.created.length} and move ${resolver.moved.length} collections. Dry run; pass --apply to write.`,
     );
     return;
   }
@@ -514,12 +626,32 @@ async function main() {
   );
 }
 
-/** Removes collections under the root that hold nothing -- the earlier mirror's rubble. */
-async function deleteEmptyCollections(collections: Collection[]) {
+/**
+ * Removes collections under the root that hold nothing *and* answer to no
+ * folder in the vault -- an earlier run's leftovers. An empty collection
+ * that is a vault folder stays: the tree is the point.
+ */
+async function deleteEmptyCollections(
+  collections: Collection[],
+  vault: string,
+) {
   const root = collections.find(
     (c) => c.data.name === ROOT_COLLECTION && !c.data.parentCollection,
   );
   if (!root) return console.log("no root collection");
+  const wanted = new Set([...vaultDirs(vault)]);
+  const byKey = new Map(collections.map((c) => [c.key, c]));
+  const pathOf = (c: Collection): string => {
+    const parts: string[] = [];
+    let x: Collection | undefined = c;
+    while (x && x.key !== root.key) {
+      parts.unshift(x.data.name);
+      x = x.data.parentCollection
+        ? byKey.get(x.data.parentCollection)
+        : undefined;
+    }
+    return parts.join("/");
+  };
   const children = new Map<string, Collection[]>();
   for (const c of collections) {
     const p = c.data.parentCollection || "";
@@ -531,11 +663,16 @@ async function deleteEmptyCollections(collections: Collection[]) {
     const kids = children.get(c.key) ?? [];
     const allKidsGone = kids.map(visit).every(Boolean);
     const empty = c.meta.numItems === 0 && allKidsGone;
-    if (empty && c.key !== root.key) toDelete.push(c);
-    return empty;
+    const unwanted = empty && !wanted.has(pathOf(c));
+    if (unwanted && c.key !== root.key) toDelete.push(c);
+    // A wanted empty folder is kept, and keeps its parent.
+    return unwanted;
   };
   visit(root);
-  console.log(`${toDelete.length} empty collections under ${ROOT_COLLECTION}`);
+  console.log(
+    `${toDelete.length} empty collections under ${ROOT_COLLECTION} that are not vault folders`,
+  );
+  for (const c of toDelete.slice(0, 40)) console.log(`  - ${pathOf(c)}`);
   if (!apply)
     return console.log("Dry run; pass --apply --cleanup to delete them.");
   // In batches of 50 keys. The precondition is the *library* version --
