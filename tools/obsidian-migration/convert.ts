@@ -18,6 +18,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { dirname, join, relative } from "node:path";
@@ -41,6 +42,18 @@ const manifest: Manifest = JSON.parse(
 );
 const staging = join(config.out, "staging");
 
+/**
+ * Vault path → Zotero keys, from the import. A document that is in Zotero
+ * is linked there and left out of the library; only what is not -- images,
+ * code -- is copied.
+ */
+type ZoteroEntry = { key: string; parent?: string };
+const zoteroMapPath = join(config.out, "zotero-map.json");
+const zoteroMap: Record<string, ZoteroEntry> = existsSync(zoteroMapPath)
+  ? JSON.parse(readFileSync(zoteroMapPath, "utf8"))
+  : {};
+const inZotero = (source: string) => zoteroMap[source];
+
 // ---------------------------------------------------------------------------
 // Looking things up
 // ---------------------------------------------------------------------------
@@ -48,6 +61,104 @@ const staging = join(config.out, "staging");
 /** Library path → the entry that produces it. */
 const byTarget = new Map<string, Entry>();
 for (const e of manifest.entries) if (e.target) byTarget.set(e.target, e);
+
+/** Library path → the vault path it came from, files inside verbatim folders included. */
+const sourceByTarget = new Map<string, string>();
+for (const e of manifest.entries) {
+  if (!e.target) continue;
+  sourceByTarget.set(e.target, e.source);
+  if (e.kind === "verbatim") {
+    const abs = join(config.vault, e.source);
+    if (!existsSync(abs)) continue;
+    for (const inner of walkFiles(abs)) {
+      sourceByTarget.set(`${e.target}/${inner}`, `${e.source}/${inner}`);
+    }
+  }
+}
+
+function* walkFiles(dir: string, rel = ""): Generator<string> {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const r = rel ? `${rel}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) yield* walkFiles(join(dir, entry.name), r);
+    else yield r;
+  }
+}
+
+const frontMatter = /^---\n[\s\S]*?\n---\n?/;
+
+// ---------------------------------------------------------------------------
+// Notes the library already has
+// ---------------------------------------------------------------------------
+
+/**
+ * A vault note whose title is already a library note is one of four things:
+ * the same note, migrated by hand earlier (dropped; links go to the library
+ * copy); an empty vault stub (dropped); content the library has only a stub
+ * for, or a stub the library has the content for (its body is appended to
+ * the library note); or a different note under the same title (kept, and
+ * listed for reconciling by hand). Sameness is the word-bag Dice coefficient,
+ * which sees through Markdown/Org syntax differences.
+ */
+type DedupAction = "drop" | "append" | "keep";
+type Dedup = { existing: string; action: DedupAction; similarity: number };
+const dedup = new Map<string, Dedup>();
+/** Vault library path → the library note its links go to instead. */
+const redirect = new Map<string, string>();
+
+function wordBag(text: string): Map<string, number> {
+  const bag = new Map<string, number>();
+  for (const w of text.toLowerCase().match(/[\p{L}\p{N}_]+/gu) ?? []) {
+    bag.set(w, (bag.get(w) ?? 0) + 1);
+  }
+  return bag;
+}
+
+function dice(a: Map<string, number>, b: Map<string, number>): number {
+  let shared = 0;
+  let total = 0;
+  for (const [w, n] of a) {
+    total += n;
+    shared += Math.min(n, b.get(w) ?? 0);
+  }
+  for (const n of b.values()) total += n;
+  return total ? (2 * shared) / total : 1;
+}
+
+const bagSize = (bag: Map<string, number>) =>
+  [...bag.values()].reduce((a, b) => a + b, 0);
+
+function planDedup() {
+  for (const { source, existing } of manifest.duplicatesOfLibrary) {
+    const e = manifest.entries.find((x) => x.source === source);
+    if (!e?.target) continue;
+    let vault: string;
+    let lib: string;
+    try {
+      vault = dropTitleLine(
+        readFileSync(join(config.vault, source), "utf8").replace(
+          frontMatter,
+          "",
+        ),
+        e.title,
+      );
+      lib = readFileSync(join(config.library, existing), "utf8").replace(
+        /^#\+.*\n/gm,
+        "",
+      );
+    } catch {
+      continue;
+    }
+    const a = wordBag(vault);
+    const b = wordBag(lib);
+    const similarity = dice(a, b);
+    let action: DedupAction;
+    if (similarity >= 0.8 || bagSize(a) === 0) action = "drop";
+    else if (bagSize(b) === 0 || bagSize(a) <= 20) action = "append";
+    else action = "keep";
+    dedup.set(source, { existing, action, similarity });
+    if (action !== "keep") redirect.set(e.target, existing);
+  }
+}
 
 /** Case-insensitive fallback for link targets, as Obsidian resolves them. */
 const linksLower = new Map<string, string>();
@@ -57,11 +168,11 @@ for (const [k, v] of Object.entries(manifest.links)) {
 
 function resolveLink(target: string): string | undefined {
   const t = target.trim();
-  return (
+  const libPath =
     manifest.links[t] ??
     linksLower.get(t.toLowerCase()) ??
-    linksLower.get(t.split("/").pop()!.toLowerCase())
-  );
+    linksLower.get(t.split("/").pop()!.toLowerCase());
+  return libPath && (redirect.get(libPath) ?? libPath);
 }
 
 /** Page images written for a vault PDF, if it was a journal scan. */
@@ -92,6 +203,11 @@ const stats = {
   indexes: 0,
   linksToNotes: 0,
   linksToFiles: 0,
+  linksToZotero: 0,
+  leftToZotero: 0,
+  emptySkipped: 0,
+  dedupDropped: 0,
+  dedupAppended: 0,
   linksUnresolved: 0,
   linksExternal: 0,
   pandocFailures: [] as string[],
@@ -149,6 +265,17 @@ function orgLink(
     const id = parseDenoteName(libPath)?.identifier;
     const title = byTarget.get(libPath)?.title ?? libraryTitle(libPath);
     return `[[denote:${id}][${alias ?? title}]]`;
+  }
+  const source = sourceByTarget.get(libPath);
+  const zotero = source ? inZotero(source) : undefined;
+  if (zotero) {
+    // The attachment's key: it opens the file, and the bibliography maps it
+    // to the parent's title once Better BibTeX has exported the item. A bare
+    // link reads as that title; an alias keeps the note's own words.
+    stats.linksToZotero++;
+    return alias
+      ? `[[zotero:${zotero.key}][${alias}]]`
+      : `[[zotero:${zotero.key}]]`;
   }
   stats.linksToFiles++;
   const rel = relative(dirname(fromTarget), libPath).split("\\").join("/");
@@ -266,9 +393,12 @@ function toOrg(
   );
 }
 
-const frontMatter = /^---\n[\s\S]*?\n---\n?/;
-
 function convertNote(e: Entry) {
+  const d = dedup.get(e.source);
+  if (d?.action === "drop") {
+    stats.dedupDropped++;
+    return;
+  }
   const abs = join(config.vault, e.source);
   const sourceDir = dirname(e.source) === "." ? "" : dirname(e.source);
   let text = readFileSync(abs, "utf8");
@@ -295,8 +425,30 @@ function convertNote(e: Entry) {
     "org",
   );
   const body = toOrg(text, e.target!, sourceDir);
+  if (d?.action === "append") {
+    if (!body.trim()) {
+      stats.dedupDropped++;
+      return;
+    }
+    // The library note keeps its name and identifier; the vault's body goes
+    // on the end, once (an earlier pass may have staged it already).
+    const lib = stagedLibraryNote(d.existing);
+    write(d.existing, `${lib.trimEnd()}\n\n${body.trim()}\n`);
+    stats.dedupAppended++;
+    return;
+  }
   write(e.target!, `${head}\n${body}`);
   stats[e.kind === "journal" ? "journal" : "notes"]++;
+}
+
+/**
+ * A library note as staged so far -- the staged copy if one pass has written
+ * it, else the library's own. The library is read, never written.
+ */
+function stagedLibraryNote(libPath: string): string {
+  const staged = join(staging, libPath);
+  if (existsSync(staged)) return readFileSync(staged, "utf8");
+  return readFileSync(join(config.library, libPath), "utf8");
 }
 
 /**
@@ -492,8 +644,9 @@ function writeCategoryIndexes() {
         `* ${heading}`,
         `#+BEGIN: denote-links :regexp ${JSON.stringify(regexp)} :not-regexp nil :excluded-dirs-regexp nil :sort-by-component title :reverse-sort nil :id-only nil :include-date nil`,
         ...list
+          .map(linkTarget)
           .sort((a, b) => a.title.localeCompare(b.title))
-          .map((e) => `- [[denote:${e.identifier}][${e.title}]]`),
+          .map((l) => `- [[denote:${l.identifier}][${l.title}]]`),
         "#+END:",
         "",
       ].join("\n");
@@ -508,11 +661,12 @@ function writeCategoryIndexes() {
         ),
     ].join("\n");
 
-    const isIndexFile = (e: Entry) => /(^|\/)\d{2}\.00 /.test(e.source);
+    const isIndexFile = (e: Entry) =>
+      new RegExp(`(^|/)${num}\\.00 `).test(e.source);
     const existing = inCat
       .filter(
         (e) =>
-          titleOf(e.title) === titleOf(name) &&
+          (titleOf(e.title) === titleOf(name) || isIndexFile(e)) &&
           e.target!.split("/").length <= 3,
       )
       // An explicit `21.00 iteam` note is the index if there is one; failing
@@ -522,14 +676,16 @@ function writeCategoryIndexes() {
           Number(isIndexFile(b)) - Number(isIndexFile(a)) ||
           a.target!.length - b.target!.length,
       )[0];
-    if (existing) {
-      const abs = join(staging, existing.target!);
-      writeFileSync(
-        abs,
-        `${readFileSync(abs, "utf8").trimEnd()}\n\n${sections}`,
-      );
+    const existingPath = existing
+      ? (redirect.get(existing.target!) ?? existing.target!)
+      : undefined;
+    if (existing && existingPath) {
+      const current = redirect.has(existing.target!)
+        ? stagedLibraryNote(existingPath)
+        : readFileSync(join(staging, existingPath), "utf8");
+      write(existingPath, `${current.trimEnd()}\n\n${sections}`);
     } else {
-      const identifier = `00000000T0000${num}`;
+      const identifier = indexIdentifier(num);
       const target = `${cat}/${formatDenoteName({ identifier, signature: `${num}=00`, title: name, keywords: [], extension: ".org" })}`;
       const head = formatDenoteFrontMatter(
         {
@@ -548,7 +704,9 @@ function writeCategoryIndexes() {
     homeLinks.push({
       num,
       name,
-      identifier: existing ? existing.identifier : `00000000T0000${num}`,
+      identifier: existingPath
+        ? (parseDenoteName(existingPath)?.identifier ?? existing!.identifier)
+        : lastIndexIdentifier,
     });
   }
   // The home page exists in the library already; this is appended to it at
@@ -599,6 +757,34 @@ function writeSpaceIgnore() {
 
 const homeLinks: { num: string; name: string; identifier: string }[] = [];
 
+/**
+ * A synthesized index page's identifier: `00000000T0000NN` for category NN,
+ * and `00000000T00NN0k` when the vault has a second category with that
+ * number (it has two 81s).
+ */
+const indexIdentifiers = new Set<string>();
+let lastIndexIdentifier = "";
+function indexIdentifier(num: string): string {
+  let id = `00000000T0000${num}`;
+  for (let k = 1; indexIdentifiers.has(id); k++) id = `00000000T00${num}0${k}`;
+  indexIdentifiers.add(id);
+  lastIndexIdentifier = id;
+  return id;
+}
+
+/**
+ * What an index list links to for a vault note: the note itself, or the
+ * library note it was merged into.
+ */
+function linkTarget(e: Entry): { identifier: string; title: string } {
+  const lib = redirect.get(e.target!);
+  if (!lib) return { identifier: e.identifier, title: e.title };
+  return {
+    identifier: parseDenoteName(lib)?.identifier ?? e.identifier,
+    title: libraryTitle(lib),
+  };
+}
+
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 // ---------------------------------------------------------------------------
@@ -606,6 +792,7 @@ const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 // ---------------------------------------------------------------------------
 
 function main() {
+  planDedup();
   if (!only) rmSync(staging, { recursive: true, force: true });
   mkdirSync(staging, { recursive: true });
   const started = Date.now();
@@ -621,6 +808,15 @@ function main() {
         break;
       case "attachment":
       case "journal-attachment": {
+        if (inZotero(e.source)) {
+          stats.leftToZotero++;
+          break;
+        }
+        // An empty file is a sync placeholder, not a document.
+        if (!e.raster && statSync(abs).size === 0) {
+          stats.emptySkipped++;
+          break;
+        }
         const dest = join(staging, e.target);
         mkdirSync(dirname(dest), { recursive: true });
         // A rendered page lives in the raster cache, not the vault.
@@ -628,10 +824,20 @@ function main() {
         stats.attachments++;
         break;
       }
-      case "verbatim":
-        cpSync(abs, join(staging, e.target), { recursive: true });
+      case "verbatim": {
+        const dest = join(staging, e.target);
+        cpSync(abs, dest, { recursive: true });
+        // Its documents are in Zotero; what stays is what is not -- images,
+        // code, the folder itself.
+        for (const inner of walkFiles(abs)) {
+          if (inZotero(`${e.source}/${inner}`)) {
+            rmSync(join(dest, inner), { force: true });
+            stats.leftToZotero++;
+          }
+        }
         stats.verbatim++;
         break;
+      }
     }
     if (++n % 500 === 0) console.log(`  ${n} entries…`);
   }
@@ -654,10 +860,31 @@ function main() {
     `| category index pages | ${stats.indexes} |`,
     `| links → notes (\`denote:\`) | ${stats.linksToNotes} |`,
     `| links → files (\`file:\`) | ${stats.linksToFiles} |`,
+    `| links → Zotero (\`zotero:\`) | ${stats.linksToZotero} |`,
+    `| documents left to Zotero, not copied | ${stats.leftToZotero} |`,
+    `| empty files skipped | ${stats.emptySkipped} |`,
+    `| notes the library already had (dropped) | ${stats.dedupDropped} |`,
+    `| notes appended to a library note | ${stats.dedupAppended} |`,
+    `| same-title notes kept apart | ${[...dedup.values()].filter((d) => d.action === "keep").length} |`,
     `| links left bare (no target) | ${stats.linksUnresolved} |`,
     `| pandoc failures (kept as Markdown) | ${stats.pandocFailures.length} |`,
     "",
     ...stats.pandocFailures.map((f) => `- \`${f}\``),
+    "",
+    "## Same title, different note -- both kept, reconcile by hand",
+    "",
+    ...[...dedup]
+      .filter(([, d]) => d.action === "keep")
+      .map(
+        ([source, d]) =>
+          `- \`${source}\` ↔ \`${d.existing}\` (${(d.similarity * 100).toFixed(0)}% alike)`,
+      ),
+    "",
+    "## Merged into a library note",
+    "",
+    ...[...dedup]
+      .filter(([, d]) => d.action !== "keep")
+      .map(([source, d]) => `- ${d.action}: \`${source}\` → \`${d.existing}\``),
   ].join("\n");
   writeFileSync(join(config.out, "conversion.md"), summary);
   console.log(summary);
