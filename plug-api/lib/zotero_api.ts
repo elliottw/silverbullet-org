@@ -23,8 +23,124 @@ export type UploadOptions = {
   /** Defaults to the file name without its extension. */
   title?: string;
   tags?: string[];
+  /**
+   * The item this file belongs to. A bare attachment cannot be cited; a
+   * child of a regular item can, through the parent's citekey. A child has
+   * no collections of its own -- the parent's are what count.
+   */
+  parentItem?: string;
   fetchFn?: typeof fetch;
 };
+
+export type ParentItemSpec = {
+  /** `document` by default; `webpage`, `book`, `journalArticle`… when known. */
+  itemType?: string;
+  title: string;
+  url?: string;
+  date?: string;
+  creators?: {
+    creatorType: string;
+    firstName?: string;
+    lastName?: string;
+    name?: string;
+  }[];
+  collections?: string[];
+  tags?: string[];
+  /** Any further Zotero fields for the type, e.g. `publicationTitle`. */
+  fields?: Record<string, string>;
+};
+
+/**
+ * Creates the regular item a file hangs from, and returns its key.
+ *
+ * This is what makes a file *reference* material: Better BibTeX gives the
+ * parent a citekey, and `[cite:@key]` follows from there.
+ */
+export async function createParentItem(
+  { userId, apiKey, api = zoteroApi }: ZoteroCredentials,
+  spec: ParentItemSpec,
+  fetchFn: typeof fetch = fetch,
+): Promise<string> {
+  const res = await fetchFn(`${api}/users/${userId}/items`, {
+    method: "POST",
+    headers: {
+      "Zotero-API-Key": apiKey,
+      "Zotero-API-Version": "3",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify([
+      {
+        itemType: spec.itemType ?? "document",
+        title: spec.title,
+        ...(spec.url ? { url: spec.url } : {}),
+        ...(spec.date ? { date: spec.date } : {}),
+        creators: spec.creators ?? [],
+        tags: (spec.tags ?? []).map((tag) => ({ tag })),
+        collections: spec.collections ?? [],
+        ...(spec.fields ?? {}),
+      },
+    ]),
+  });
+  const json = await res.json();
+  const key: string | undefined = json?.successful?.["0"]?.key;
+  if (!res.ok || !key) {
+    throw new Error(
+      `Zotero would not create the item: ${res.status} ${JSON.stringify(json?.failed ?? json)}`,
+    );
+  }
+  return key;
+}
+
+export type ZoteroCollection = {
+  key: string;
+  name: string;
+  parent: string | null;
+};
+
+/** Every collection in the library, one page at a time. */
+export async function listCollections(
+  { userId, apiKey, api = zoteroApi }: ZoteroCredentials,
+  fetchFn: typeof fetch = fetch,
+): Promise<ZoteroCollection[]> {
+  const out: ZoteroCollection[] = [];
+  for (let start = 0; ; start += 100) {
+    const res = await fetchFn(
+      `${api}/users/${userId}/collections?limit=100&start=${start}`,
+      { headers: { "Zotero-API-Key": apiKey, "Zotero-API-Version": "3" } },
+    );
+    const page = (await res.json()) as {
+      key: string;
+      data: { name: string; parentCollection: string | false };
+    }[];
+    for (const c of page) {
+      out.push({
+        key: c.key,
+        name: c.data.name,
+        parent: c.data.parentCollection || null,
+      });
+    }
+    const total = Number(res.headers.get("Total-Results") ?? out.length);
+    if (page.length === 0 || out.length >= total) return out;
+  }
+}
+
+/** `2026 / 21 iteam / 14 landslide mediation` for each collection, by key. */
+export function collectionPaths(
+  collections: ZoteroCollection[],
+): Map<string, string> {
+  const byKey = new Map(collections.map((c) => [c.key, c]));
+  const paths = new Map<string, string>();
+  for (const c of collections) {
+    const parts: string[] = [];
+    let x: ZoteroCollection | undefined = c;
+    while (x) {
+      parts.unshift(x.name);
+      x = x.parent ? byKey.get(x.parent) : undefined;
+    }
+    paths.set(c.key, parts.join(" / "));
+  }
+  return paths;
+}
 
 export async function uploadToZotero(
   { userId, apiKey, api = zoteroApi }: ZoteroCredentials,
@@ -53,7 +169,10 @@ export async function uploadToZotero(
         filename: name,
         contentType,
         tags: (options.tags ?? []).map((tag) => ({ tag })),
-        collections: options.collections ?? [],
+        // A child attachment carries no collections; the parent does.
+        ...(options.parentItem
+          ? { parentItem: options.parentItem }
+          : { collections: options.collections ?? [] }),
       },
     ]),
   });
