@@ -17,13 +17,23 @@ export type ZoteroCredentials = {
   api?: string;
 };
 
+export type UploadOptions = {
+  /** Collection keys the item is filed under. */
+  collections?: string[];
+  /** Defaults to the file name without its extension. */
+  title?: string;
+  tags?: string[];
+  fetchFn?: typeof fetch;
+};
+
 export async function uploadToZotero(
   { userId, apiKey, api = zoteroApi }: ZoteroCredentials,
   name: string,
   contentType: string,
   content: Uint8Array,
-  fetchFn: typeof fetch = fetch,
+  options: UploadOptions = {},
 ): Promise<string> {
+  const fetchFn = options.fetchFn ?? fetch;
   const headers = { "Zotero-API-Key": apiKey, "Zotero-API-Version": "3" };
   const items = `${api}/users/${userId}/items`;
   const form = (fields: Record<string, string>) =>
@@ -39,11 +49,11 @@ export async function uploadToZotero(
       {
         itemType: "attachment",
         linkMode: "imported_file",
-        title: name.replace(/\.[^.]+$/, ""),
+        title: options.title ?? name.replace(/\.[^.]+$/, ""),
         filename: name,
         contentType,
-        tags: [],
-        collections: [],
+        tags: (options.tags ?? []).map((tag) => ({ tag })),
+        collections: options.collections ?? [],
       },
     ]),
   });
