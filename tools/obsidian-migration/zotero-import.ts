@@ -330,6 +330,16 @@ function isCodeDir(abs: string, name: string): boolean {
   return !numbered && names.filter((n) => codeMarkers.test(n)).length >= 3;
 }
 
+/** Vault folders that become the journal, and so have no place in Zotero. */
+function isJournalDir(rel: string): boolean {
+  return (
+    rel === config.calendarDir ||
+    rel.startsWith(`${config.calendarDir}/`) ||
+    rel.endsWith(`/${config.vaultJournalFolder}`) ||
+    rel.includes(`/${config.vaultJournalFolder}/`)
+  );
+}
+
 /** Every folder in the vault that belongs in the tree, as vault-relative paths. */
 function* vaultDirs(dir: string, rel = ""): Generator<string> {
   for (const e of readdirSync(dir, { withFileTypes: true })) {
@@ -337,6 +347,9 @@ function* vaultDirs(dir: string, rel = ""): Generator<string> {
     const abs = join(dir, e.name);
     if (isCodeDir(abs, e.name)) continue;
     const r = rel ? `${rel}/${e.name}` : e.name;
+    // The perpetual calendar and the journal folder become journal entries
+    // in the library; their scans become images beside those entries.
+    if (isJournalDir(r)) continue;
     yield r;
     yield* vaultDirs(abs, r);
   }
@@ -394,7 +407,11 @@ function plan(
   for (const e of manifest.entries) {
     if (!e.target) continue;
     if (only && !e.source.includes(only)) continue;
-    if (e.kind === "attachment" || e.kind === "journal-attachment") {
+    if (e.kind === "journal-attachment") {
+      skip("journal scan (an image beside its entry)");
+      continue;
+    }
+    if (e.kind === "attachment") {
       consider(e.source, e.target);
     } else if (e.kind === "verbatim") {
       const abs = join(manifest.vault, e.source);
@@ -588,6 +605,8 @@ async function main() {
   if (apply) writeFileSync(mapPath, JSON.stringify(map, null, 1));
 
   if (!apply) {
+    for (const c of resolver.created.slice(0, 40)) console.log(`  + ${c}`);
+    for (const c of resolver.moved.slice(0, 40)) console.log(`  → ${c}`);
     console.log(
       `Would create ${resolver.created.length} and move ${resolver.moved.length} collections. Dry run; pass --apply to write.`,
     );

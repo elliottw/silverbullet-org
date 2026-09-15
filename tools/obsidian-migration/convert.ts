@@ -15,6 +15,7 @@ import {
   cpSync,
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -22,8 +23,10 @@ import {
 import { dirname, join, relative } from "node:path";
 import {
   denoteDate,
+  denoteIdentifier,
   formatDenoteFrontMatter,
   formatDenoteName,
+  journalTitle,
   parseDenoteName,
 } from "../../plug-api/lib/denote.ts";
 import { config } from "./config.ts";
@@ -61,6 +64,26 @@ function resolveLink(target: string): string | undefined {
   );
 }
 
+/** Page images written for a vault PDF, if it was a journal scan. */
+function pagesFor(target: string): string[] | undefined {
+  const t = target.trim();
+  const direct = manifest.pageImages[t];
+  if (direct) return direct;
+  const lower = t.toLowerCase();
+  for (const [source, pages] of Object.entries(manifest.pageImages)) {
+    if (
+      source.toLowerCase() === lower ||
+      source.toLowerCase().endsWith(`/${lower}`)
+    ) {
+      return pages;
+    }
+  }
+  return undefined;
+}
+
+/** Pages some entry has embedded, so the rest can be attached to their date. */
+const linkedPages = new Set<string>();
+
 const stats = {
   notes: 0,
   journal: 0,
@@ -94,6 +117,18 @@ function orgLink(
   fromTarget: string,
   wasFileLink = false,
 ): string {
+  // A scanned PDF in the journal became page images: every page, inline,
+  // where the scan was linked. The alias goes -- a picture needs none.
+  const pages = pagesFor(target);
+  if (pages) {
+    stats.linksToFiles++;
+    for (const page of pages) linkedPages.add(page);
+    // On one line: the scan may sit in a list item, and a second line would
+    // fall out of it. Each image draws at full width anyway.
+    return pages
+      .map((page) => `[[file:${relative(dirname(fromTarget), page)}]]`)
+      .join(" ");
+  }
   const libPath = resolveLink(target);
   if (!libPath) {
     stats.linksUnresolved++;
@@ -319,6 +354,109 @@ function write(target: string, content: string) {
 }
 
 // ---------------------------------------------------------------------------
+// Scans nothing linked
+// ---------------------------------------------------------------------------
+
+const takenIdentifiers = (() => {
+  const taken = new Set<string>();
+  for (const e of manifest.entries) if (e.identifier) taken.add(e.identifier);
+  const walk = (dir: string) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name.startsWith(".")) continue;
+      if (entry.isDirectory()) walk(join(dir, entry.name));
+      else {
+        const id = parseDenoteName(entry.name)?.identifier;
+        if (id) taken.add(id);
+      }
+    }
+  };
+  try {
+    walk(config.library);
+  } catch {
+    // No library yet: only the manifest's identifiers are taken.
+  }
+  return taken;
+})();
+
+/** An identifier for `date` nothing holds, bumping seconds as Denote does. */
+function freeIdentifier(date: Date): string {
+  const candidate = new Date(date.getTime());
+  for (let i = 0; i < 24 * 3600; i++) {
+    const id = denoteIdentifier(candidate);
+    if (!takenIdentifiers.has(id)) {
+      takenIdentifiers.add(id);
+      return id;
+    }
+    candidate.setSeconds(candidate.getSeconds() + 1);
+  }
+  throw new Error(`no free identifier on ${date.toDateString()}`);
+}
+
+/**
+ * A scan no entry linked -- a day page that held the file but never
+ * mentioned it, or a dated PDF in the journal folder with no page at all --
+ * still belongs to a day. It is appended to that day's entry, and a day with
+ * scans but no entry gets one holding just them.
+ */
+function attachOrphanScans() {
+  const byDate = new Map<string, Entry[]>();
+  for (const e of manifest.entries) {
+    if (e.raster && e.target && !linkedPages.has(e.target)) {
+      byDate.set(e.raster.date, [...(byDate.get(e.raster.date) ?? []), e]);
+    }
+  }
+  const entriesByDate = new Map<string, Entry>();
+  for (const e of manifest.entries) {
+    if (e.kind === "journal" && e.target && e.journal) {
+      entriesByDate.set(e.journal.date, e);
+    }
+  }
+  let appended = 0;
+  let made = 0;
+  for (const [date, pages] of byDate) {
+    const block = pages
+      .sort((a, b) => a.target!.localeCompare(b.target!))
+      .map(
+        (p) => `[[file:${p.target!.slice(config.journalFolder.length + 1)}]]`,
+      )
+      .join(" ");
+    const entry = entriesByDate.get(date);
+    if (entry) {
+      const abs = join(staging, entry.target!);
+      writeFileSync(
+        abs,
+        `${readFileSync(abs, "utf8").trimEnd()}\n\n${block}\n`,
+      );
+      appended += pages.length;
+      continue;
+    }
+    // No entry that day: the scans are the entry, under an identifier of
+    // its own -- every identifier the manifest or the library holds is taken.
+    const [y, m, d] = date.split("-").map(Number);
+    const day = new Date(y, m - 1, d);
+    const identifier = freeIdentifier(day);
+    const title = journalTitle(day, config.journalTitleFormat);
+    const target = `${config.journalFolder}/${formatDenoteName({ identifier, title, keywords: [config.journalKeyword], extension: ".org" })}`;
+    const head = formatDenoteFrontMatter(
+      {
+        title,
+        date: denoteDate(day, "org"),
+        keywords: [config.journalKeyword],
+        hasKeywords: true,
+        identifier,
+      },
+      "org",
+    );
+    write(target, `${head}\n${block}\n`);
+    made++;
+    stats.journal++;
+  }
+  console.log(
+    `scans: ${appended} pages appended to their day's entry, ${made} entries made of scans alone`,
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Category index pages
 // ---------------------------------------------------------------------------
 
@@ -485,7 +623,8 @@ function main() {
       case "journal-attachment": {
         const dest = join(staging, e.target);
         mkdirSync(dirname(dest), { recursive: true });
-        copyFileSync(abs, dest);
+        // A rendered page lives in the raster cache, not the vault.
+        copyFileSync(e.raster ? e.source : abs, dest);
         stats.attachments++;
         break;
       }
@@ -496,7 +635,10 @@ function main() {
     }
     if (++n % 500 === 0) console.log(`  ${n} entries…`);
   }
-  if (!only) writeCategoryIndexes();
+  if (!only) {
+    attachOrphanScans();
+    writeCategoryIndexes();
+  }
   const secs = ((Date.now() - started) / 1000).toFixed(0);
   const summary = [
     `# Conversion — ${new Date().toISOString().slice(0, 16).replace("T", " ")} (${secs}s)`,

@@ -19,6 +19,8 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join, relative, sep } from "node:path";
+import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import {
   denoteAttachmentName,
   denoteIdentifier,
@@ -47,6 +49,11 @@ export type Entry = {
   keywords: string[];
   /** For a journal split: the section's date and its source line range. */
   journal?: { date: string; lines: [number, number] };
+  /**
+   * For a page rendered out of a scanned PDF: the vault PDF and the page.
+   * The file itself is in the raster cache, not the vault.
+   */
+  raster?: { source: string; page: number; date: string };
   warnings: string[];
 };
 
@@ -63,6 +70,8 @@ export type Manifest = {
   duplicatesOfLibrary: { source: string; existing: string }[];
   /** Dangling vault links that turned out to name a note the library has. */
   resolvedInLibrary: number;
+  /** Vault PDF → the page images it became, in order. */
+  pageImages: Record<string, string[]>;
 };
 
 // ---------------------------------------------------------------------------
@@ -336,6 +345,81 @@ function fitTitle(title: string, name: (title: string) => string): string {
 }
 
 // ---------------------------------------------------------------------------
+// Scanned PDFs → page images
+// ---------------------------------------------------------------------------
+
+/**
+ * Renders a scanned PDF to one JPEG per page, cached under the output
+ * directory by the PDF's content, and returns the page files.
+ *
+ * A scan in the journal is journal content -- a page of handwriting, a
+ * receipt -- not reference material, so it does not go to Zotero; it becomes
+ * images beside the entry, shown inline, the way a pasted screenshot is.
+ */
+function rasterize(absPdf: string): string[] {
+  const hash = createHash("md5").update(readFileSync(absPdf)).digest("hex");
+  const dir = join(config.out, "rasters", hash);
+  if (!existsSync(join(dir, "done"))) {
+    mkdirSync(dir, { recursive: true });
+    execFileSync("pdftoppm", [
+      "-jpeg",
+      "-r",
+      String(config.rasterDpi),
+      "-jpegopt",
+      "quality=85",
+      absPdf,
+      join(dir, "page"),
+    ]);
+    writeFileSync(join(dir, "done"), "");
+  }
+  return readdirSync(dir)
+    .filter((f) => /^page-\d+\.jpg$/.test(f))
+    .sort((a, b) => Number(a.match(/\d+/)![0]) - Number(b.match(/\d+/)![0]))
+    .map((f) => join(dir, f));
+}
+
+/** Emits the page-image entries for a journal scan, dated to `date`. */
+function scanEntries(
+  rel: string,
+  absPdf: string,
+  date: Date,
+  entries: Entry[],
+  links: Record<string, string>,
+  pageImages: Record<string, string[]>,
+): void {
+  const name = rel.split("/").pop()!;
+  const pages = rasterize(absPdf);
+  const targets: string[] = [];
+  pages.forEach((page, i) => {
+    const identifier = claim(date);
+    const title =
+      pages.length > 1
+        ? `${name.replace(/\.pdf$/i, "")} p${i + 1}`
+        : name.replace(/\.pdf$/i, "");
+    const target = `${config.journalFolder}/${denoteAttachmentName(identifier, `${title}.jpg`)}`;
+    targets.push(target);
+    entries.push({
+      source: page,
+      kind: "journal-attachment",
+      target,
+      identifier,
+      identifierFrom: "name",
+      title,
+      keywords: [],
+      raster: {
+        source: rel,
+        page: i + 1,
+        date: date.toISOString().slice(0, 10),
+      },
+      warnings: [],
+    });
+  });
+  pageImages[rel] = targets;
+  links[rel] = targets[0];
+  links[name] = links[name] ?? targets[0];
+}
+
+// ---------------------------------------------------------------------------
 // The perpetual calendar → journal entries
 // ---------------------------------------------------------------------------
 
@@ -426,6 +510,7 @@ function main() {
 
   const entries: Entry[] = [];
   const links: Record<string, string> = {};
+  const pageImages: Record<string, string[]> = {};
   const stems = new Map<string, string[]>(); // stem → targets (for ambiguity)
 
   // Notes first, so a journal entry claims the round `T000000` identifier for
@@ -460,6 +545,10 @@ function main() {
           months[m] && +d && year
             ? new Date(year, months[m] - 1, +d)
             : new Date(statSync(abs).birthtime);
+        if (/\.pdf$/i.test(name)) {
+          scanEntries(rel, abs, date, entries, links, pageImages);
+          continue;
+        }
         const identifier = claim(date);
         const target = `${config.journalFolder}/${denoteAttachmentName(identifier, name)}`;
         links[rel] = target;
@@ -591,6 +680,10 @@ function main() {
       stems.set(stem, [...(stems.get(stem) ?? []), target]);
     } else {
       const date = dateFromName(stem) ?? new Date(stat.birthtime);
+      if (isJournalFolder && /\.pdf$/i.test(name)) {
+        scanEntries(rel, abs, date, entries, links, pageImages);
+        continue;
+      }
       const identifier = claim(date);
       const folder = isJournalFolder ? config.journalFolder : placement.folder;
       const target = `${folder}/${denoteAttachmentName(identifier, name)}`;
@@ -705,6 +798,7 @@ function main() {
     unresolvedLinks: unresolved,
     duplicatesOfLibrary,
     resolvedInLibrary,
+    pageImages,
   };
   writeFileSync(join(out, "manifest.json"), JSON.stringify(manifest, null, 1));
   writeFileSync(join(out, "report.md"), report(manifest));

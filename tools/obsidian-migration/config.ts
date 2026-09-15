@@ -20,6 +20,9 @@ export const config = {
   journalKeyword: "journal",
   journalTitleFormat: "day-date-month-year",
 
+  /** Resolution for scanned PDFs rendered to page images. */
+  rasterDpi: 150,
+
   /** Files with no JD category land here for sorting by hand. */
   unassignedFolder: "00 inbox",
 
