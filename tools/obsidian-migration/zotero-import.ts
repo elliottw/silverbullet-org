@@ -341,6 +341,12 @@ function plan(
       const name = e.source.split("/").pop()!;
       // A repository or code project stays a folder; a dump or a saved page
       // is documents.
+      // A repository's internals are not documents, and carry no marker of
+      // their own to say so.
+      if (name === ".git" || e.source.includes("/.git/")) {
+        skip("code folder");
+        continue;
+      }
       const names = existsSync(abs) ? readdirSync(abs) : [];
       if (
         /\.nosync$/.test(name) ||
@@ -532,16 +538,15 @@ async function deleteEmptyCollections(collections: Collection[]) {
   console.log(`${toDelete.length} empty collections under ${ROOT_COLLECTION}`);
   if (!apply)
     return console.log("Dry run; pass --apply --cleanup to delete them.");
-  // Deepest first, in batches of 50 keys.
+  // In batches of 50 keys. The precondition is the *library* version --
+  // items count too -- read fresh for each batch, since each delete moves it.
   const keys = toDelete.map((c) => c.key);
-  const version = Math.max(...collections.map((c) => c.version));
   for (let i = 0; i < keys.length; i += 50) {
+    const probe = await zfetch("/collections?limit=1");
+    const version = probe.headers.get("Last-Modified-Version") ?? "";
     const res = await zfetch(
       `/collections?collectionKey=${keys.slice(i, i + 50).join(",")}`,
-      {
-        method: "DELETE",
-        headers: { "If-Unmodified-Since-Version": String(version) },
-      },
+      { method: "DELETE", headers: { "If-Unmodified-Since-Version": version } },
     );
     console.log(
       `  deleted ${Math.min(i + 50, keys.length)}/${keys.length}: ${res.status}`,
