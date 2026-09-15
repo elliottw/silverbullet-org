@@ -307,7 +307,6 @@ export function documentExtension(editor: Client) {
       ]);
     if (!isImage && (await invoke("index.zoteroCanAddFiles", []))) {
       const name = file.name || `pasted-${Date.now()}${fallbackExtension}`;
-      editor.ui.flashNotification(`Adding ${name} to Zotero…`, "info");
       try {
         const key: string = await invoke("index.zoteroAdd", [
           name,
@@ -326,10 +325,12 @@ export function documentExtension(editor: Client) {
           },
         });
       } catch (e: any) {
-        editor.ui.flashNotification(
-          `Could not add to Zotero: ${e.message}`,
-          "error",
-        );
+        if (!/Cancelled/.test(String(e.message))) {
+          editor.ui.flashNotification(
+            `Could not add to Zotero: ${e.message}`,
+            "error",
+          );
+        }
       }
       return;
     }

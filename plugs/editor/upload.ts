@@ -60,13 +60,18 @@ export async function saveFile(file: UploadFile) {
     !file.contentType.startsWith("image/") &&
     (await system.invokeFunction("index.zoteroCanAddFiles"))
   ) {
-    await editor.flashNotification(`Adding ${file.name} to Zotero…`, "info");
-    const key: string = await system.invokeFunction(
-      "index.zoteroAdd",
-      file.name,
-      file.contentType,
-      file.content,
-    );
+    let key: string;
+    try {
+      key = await system.invokeFunction(
+        "index.zoteroAdd",
+        file.name,
+        file.contentType,
+        file.content,
+      );
+    } catch (e: any) {
+      if (!/Cancelled/.test(String(e.message))) throw e;
+      return;
+    }
     if ((await editor.getCurrentEditor()) === "page") {
       const link: string = await system.invokeFunction(
         "index.zoteroLinkForItem",

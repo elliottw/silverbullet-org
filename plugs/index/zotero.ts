@@ -36,7 +36,13 @@ import type {
   PageMeta,
 } from "@silverbulletmd/silverbullet/type/index";
 import { linkSyntaxFor } from "@silverbulletmd/silverbullet/lib/link_syntax";
-import { uploadToZotero } from "@silverbulletmd/silverbullet/lib/zotero_api";
+import {
+  collectionPaths,
+  createParentItem,
+  listCollections,
+  uploadToZotero,
+  type ZoteroCredentials,
+} from "@silverbulletmd/silverbullet/lib/zotero_api";
 import { createDenoteNote, invalidateDenoteIdentifiers } from "./denote.ts";
 import type { FrontMatter } from "./frontmatter.ts";
 import type { RelationObject } from "./relation.ts";
@@ -70,6 +76,8 @@ export type ZoteroConfig = {
   apiKey?: string;
   /** The API's base URL. Only a test has a reason to change it. */
   api?: string;
+  /** The collection the picker is scoped to, by name; all of them if unset. */
+  rootCollection?: string;
   /** Keyword a reference note carries; `citar-denote` uses `bib`. */
   referenceKeyword: string;
 };
@@ -82,6 +90,7 @@ export async function zoteroConfig(): Promise<ZoteroConfig> {
     userId: cfg.userId,
     apiKey: cfg.apiKey,
     api: cfg.api,
+    rootCollection: cfg.rootCollection,
     referenceKeyword: cfg.referenceKeyword ?? "bib",
   };
 }
@@ -405,7 +414,106 @@ export async function addFile(
       "Set zotero.userId and zotero.apiKey to add files to Zotero",
     );
   }
-  return uploadToZotero({ userId, apiKey, api }, name, contentType, content);
+  const creds = { userId, apiKey, api };
+
+  // What it is called. The file's own name is the honest default -- this is
+  // not a paper library, and a title in the first pages is the exception --
+  // and Enter accepts it.
+  const proposed = titleFor(name, content);
+  const title = await editor.prompt("Title:", proposed);
+  if (title === undefined) {
+    throw new Error("Cancelled");
+  }
+
+  // Where it goes, the way the connector's save dialog asks: the tree,
+  // searchable, the last choice first.
+  const collection = await pickCollection(creds);
+  if (collection === undefined) {
+    throw new Error("Cancelled");
+  }
+
+  // A regular item to cite, with the file as its child.
+  const parent = await createParentItem(creds, {
+    itemType: /\.html?$/i.test(name) ? "webpage" : "document",
+    title: title.trim() || proposed,
+    collections: collection ? [collection] : [],
+  });
+  return uploadToZotero(creds, name, contentType, content, {
+    parentItem: parent,
+  });
+}
+
+/** The best title on offer for a file about to be added. */
+function titleFor(name: string, content: Uint8Array): string {
+  // A PDF's embedded title, when its Info dictionary is in the clear and a
+  // scanner or word processor did not write it.
+  if (/\.pdf$/i.test(name)) {
+    const head = new TextDecoder("latin1").decode(content.subarray(0, 65536));
+    const m = /\/Title\s*\(((?:\\.|[^)\\]){4,200})\)/.exec(head);
+    const embedded = m?.[1].replace(/\\([()\\])/g, "$1").trim();
+    if (
+      embedded &&
+      !/^(microsoft word|untitled|document\d*|scan|scanned|img_|dsc_|print|slide ?\d*)/i.test(
+        embedded,
+      ) &&
+      !/\.(docx?|pdf|pptx?|xlsx?)$/i.test(embedded) &&
+      !/[^\x20-\x7e\u00a0-\uffff]/.test(embedded)
+    ) {
+      return embedded;
+    }
+  }
+  const stem = name
+    .replace(/\.[^.]+$/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  // Already words? Keep them. A slug gets its separators back.
+  if (/\s/.test(stem) && /[a-z]/.test(stem) && /[A-Z]/.test(stem)) return stem;
+  return stem
+    .replace(/[_-]+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/**
+ * A picker over the library's collections, as paths, scoped to
+ * `zotero.rootCollection` when set. The last choice is offered first, and
+ * "no collection" is always available. Returns a key, "" for none, or
+ * undefined when cancelled.
+ */
+async function pickCollection(
+  creds: ZoteroCredentials,
+): Promise<string | "" | undefined> {
+  const { rootCollection } = await zoteroConfig();
+  const collections = await listCollections(creds);
+  const paths = collectionPaths(collections);
+  const last = (await clientStore.get("zotero.lastCollection")) as
+    | string
+    | undefined;
+  const options = [...paths]
+    .filter(
+      ([, path]) =>
+        !rootCollection ||
+        path.startsWith(`${rootCollection} / `) ||
+        path === rootCollection,
+    )
+    .map(([key, path]) => ({
+      name: path,
+      description: key === last ? "last used" : "",
+      key,
+      orderId: key === last ? -1 : 0,
+    }))
+    .sort((a, b) => a.orderId - b.orderId || a.name.localeCompare(b.name));
+  const choice = await editor.filterBox(
+    "Collection",
+    [
+      ...options,
+      { name: "(no collection)", description: "unfiled", key: "", orderId: 1 },
+    ],
+    "Where in Zotero the item is filed",
+  );
+  if (!choice) return undefined;
+  if (choice.key) await clientStore.set("zotero.lastCollection", choice.key);
+  return choice.key as string;
 }
 
 /** Whether adding to Zotero is configured at all. */
@@ -439,8 +547,13 @@ export async function addFileCommand() {
     return;
   }
   const file = await editor.uploadFile();
-  await editor.flashNotification(`Adding ${file.name} to Zotero…`, "info");
-  const key = await addFile(file.name, file.contentType, file.content);
+  let key: string;
+  try {
+    key = await addFile(file.name, file.contentType, file.content);
+  } catch (e: any) {
+    if (/Cancelled/.test(String(e.message))) return;
+    throw e;
+  }
   const page = await editor.getCurrentPage();
   await editor.insertAtCursor(await linkForItem(key, file.name, page));
 }

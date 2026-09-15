@@ -175,9 +175,11 @@ function mockZotero(): Promise<{
   url: string;
   calls: string[];
   uploads: Buffer[];
+  items: any[];
 }> {
   const calls: string[] = [];
   const uploads: Buffer[] = [];
+  const items: any[] = [];
   const server = createServer((req, res) => {
     const chunks: Buffer[] = [];
     req.on("data", (c) => chunks.push(c));
@@ -186,9 +188,36 @@ function mockZotero(): Promise<{
       calls.push(
         `${req.method} ${req.url} key=${req.headers["zotero-api-key"]}`,
       );
-      if (req.method === "POST" && req.url === "/users/42/items") {
+      if (
+        req.method === "GET" &&
+        req.url?.startsWith("/users/42/collections")
+      ) {
+        res.writeHead(200, {
+          "Content-Type": "application/json",
+          "Total-Results": "1",
+        });
+        res.end(
+          JSON.stringify([
+            {
+              key: "COLL0001",
+              data: { name: "2026", parentCollection: false },
+            },
+          ]),
+        );
+      } else if (req.method === "POST" && req.url === "/users/42/items") {
+        // A parent item, then the attachment under it.
+        const isAttachment = body
+          .toString()
+          .includes('"itemType":"attachment"');
+        items.push(JSON.parse(body.toString())[0]);
         res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ successful: { "0": { key: "MOCKKEY1" } } }));
+        res.end(
+          JSON.stringify({
+            successful: {
+              "0": { key: isAttachment ? "MOCKKEY1" : "MOCKPAR1" },
+            },
+          }),
+        );
       } else if (
         req.url === "/users/42/items/MOCKKEY1/file" &&
         body.toString().startsWith("md5=")
@@ -236,6 +265,7 @@ function mockZotero(): Promise<{
         url: `http://127.0.0.1:${MOCK_PORT}`,
         calls,
         uploads,
+        items,
       }),
     ),
   );
@@ -288,6 +318,21 @@ test.describe("Zotero: adding a file", () => {
       );
     });
 
+    // The title, offered from the file name; Enter accepts.
+    const prompt = sbPage
+      .locator(".sb-modal-box input, .sb-modal input")
+      .first();
+    await expect(prompt).toBeVisible({ timeout: 20_000 });
+    await expect(prompt).toHaveValue("Paper");
+    await prompt.press("Enter");
+    // The collection, from the tree; the only one on offer here.
+    const filter = sbPage
+      .locator(".sb-modal-box input, .sb-modal input")
+      .first();
+    await expect(filter).toBeVisible({ timeout: 20_000 });
+    await filter.fill("2026");
+    await filter.press("Enter");
+
     await expect
       .poll(
         () =>
@@ -299,6 +344,18 @@ test.describe("Zotero: adding a file", () => {
         { timeout: 30_000 },
       )
       .toContain("[[zotero:MOCKKEY1][paper.pdf]]");
+    // A parent to cite, in the chosen collection, with the file as its child.
+    const parent = mock.items.find((i) => i.itemType !== "attachment");
+    const child = mock.items.find((i) => i.itemType === "attachment");
+    expect(parent).toMatchObject({
+      itemType: "document",
+      title: "Paper",
+      collections: ["COLL0001"],
+    });
+    expect(child).toMatchObject({
+      parentItem: "MOCKPAR1",
+      filename: "paper.pdf",
+    });
     // All four steps, with the key, and the bytes wrapped as instructed.
     expect(
       mock.calls.filter((c) => c.includes("key=k")).length,
