@@ -58,6 +58,8 @@ export type Entry = {
    */
   category?: string;
   section?: string;
+  /** Every folder below the category, for an ID note's contents by folder. */
+  folders?: string[];
   /** For a journal split: the section's date and its source line range. */
   journal?: { date: string; lines: [number, number] };
   /**
@@ -179,38 +181,29 @@ export function folderNoteId(
 }
 
 export type Placement = {
-  signature?: string;
   category?: string;
   section?: string;
+  /** Every folder below the category, in order. */
+  folders: string[];
   warnings: string[];
 };
 
 /**
- * What a file's vault folders become. The library is flat: the folders'
- * meaning moves into the Denote signature -- `21` for a note in `21 iteam`,
- * `21=14` for one in `21 iteam/14 landslide mediation` -- which is the
- * Johnny Decimal address, sortable and searchable from the file name. The
- * category and the folder under it are also recorded so the category's hub
- * note can list its notes by where they were; a sub-folder without a number
- * (`20260224 refi`, `Countries`) is kept that way only, since no number is
- * invented for it. The area folder (`20-29 Missions`) is implied by the
- * category number and dropped; `assets/` folders dissolve.
+ * Where a file sat: its category (`21 iteam`, or a non-JD top folder like
+ * `type`), the folder under that, and every folder below the category. The
+ * library is flat, so none of this becomes a path; it is what the hub notes
+ * list by. The area folder (`20-29 Missions`) is implied by the category
+ * number and dropped; `assets/` folders dissolve.
  */
 export function place(relPath: string): Placement {
   const parts = relPath.split("/");
   const dirs = parts.slice(0, -1).filter((d) => d !== "assets");
   const kept = dirs[0] && areaDir.test(dirs[0]) ? dirs.slice(1) : dirs;
   const category = kept[0] && numberedDir.exec(kept[0]);
-  const id = category && kept[1] && idDir.exec(kept[1]);
-  const signature = category
-    ? id
-      ? `${category[1]}=${id[1]}`
-      : category[1]
-    : undefined;
   return {
-    signature,
     category: kept[0],
     section: kept[1],
+    folders: kept.slice(1),
     warnings: category
       ? []
       : [
@@ -221,22 +214,124 @@ export function place(relPath: string): Placement {
   };
 }
 
+/**
+ * A note's signature, if it has one. In Johnny Decimal the address belongs
+ * to an *ID* -- a folder, or a note that names one -- not to every note
+ * inside it. So a signature goes only to: the category's own note
+ * (`21.00 iteam`, or `iteam` in `21 iteam` or its `00 meta`), which is the
+ * hub at `NN=00`; a note carrying an ID in its name, before or after the
+ * title (`25.03 Acorn Medic Branding`, `adrianna 61.54`); and a folder note
+ * -- the note named like its numbered folder, inside it (`02 howm/Howm`) or
+ * beside it (`existential` next to `02 existential/`). Everything else,
+ * including every other note in an ID's folder, has none: it is the ID's
+ * contents, reached through the ID's note.
+ */
+export function signatureOf(
+  placement: Placement,
+  stem: string,
+  dirAbs: string,
+): { signature?: string; section?: string } {
+  const cat = placement.category && numberedDir.exec(placement.category);
+  if (!cat) return {};
+  const jd = jdIdOf(stem);
+  if (jd) return { signature: `${jd.category}=${jd.id}` };
+  const title = sluggify("title", stripPrefixes(stem) ?? stem);
+  const inMeta = placement.section && /^00 /.test(placement.section);
+  if ((!placement.section || inMeta) && title === sluggify("title", cat[2])) {
+    return { signature: `${cat[1]}=00` };
+  }
+  // Inside its folder: the note named like the numbered folder it sits in.
+  const own = placement.folders.at(-1) && idDir.exec(placement.folders.at(-1)!);
+  if (
+    own &&
+    placement.folders.length === 1 &&
+    title === sluggify("title", own[2])
+  ) {
+    return { signature: `${cat[1]}=${own[1]}` };
+  }
+  // Beside its folder.
+  if (!placement.section) {
+    const beside = folderNoteId(dirAbs, stem);
+    if (beside) {
+      return { signature: `${cat[1]}=${beside.id}`, section: beside.folder };
+    }
+  }
+  return {};
+}
+
 // ---------------------------------------------------------------------------
 // Dates and identifiers
 // ---------------------------------------------------------------------------
 
 const taken = new Set<string>();
 
+/**
+ * The previous run's manifest, if any: its identifiers are kept, so a note
+ * keeps its identity from one run to the next and the links already
+ * written to it hold. The files that run produced are also known, so the
+ * library can be read as it was before the migration touched it.
+ */
+const previous: Manifest | undefined = existsSync(
+  join(config.out, "manifest.json"),
+)
+  ? JSON.parse(readFileSync(join(config.out, "manifest.json"), "utf8"))
+  : undefined;
+const previousIdentifiers = new Map<string, string>();
+const previousTargets = new Set<string>();
+for (const e of previous?.entries ?? []) {
+  if (e.target) previousTargets.add(e.target);
+  if (e.identifier) previousIdentifiers.set(claimKey(e), e.identifier);
+}
+// The converter makes notes the manifest does not list -- hubs, ID notes,
+// scan-only journal entries -- so the previous staging is the full record.
+// A library note the cutover replaced (appended to) is still the library's
+// own; its original is kept under `replaced/`, which is how it is told apart.
+for (const dir of ["staging", "staging-previous"]) {
+  const abs = join(config.out, dir);
+  if (!existsSync(abs)) continue;
+  for (const rel of walkAll(abs)) {
+    if (!existsSync(join(config.out, "replaced", rel)))
+      previousTargets.add(rel);
+  }
+}
+
+/** What identifies an entry across runs: its source, and for a split, the piece. */
+function claimKey(e: {
+  source: string;
+  journal?: { date: string };
+  raster?: { page: number };
+}): string {
+  return e.journal
+    ? `${e.source}#${e.journal.date}`
+    : e.raster
+      ? `${e.source}#p${e.raster.page}`
+      : e.source;
+}
+
+/** Whether a library file is one an earlier run wrote there. */
+export function isMigrated(rel: string): boolean {
+  return previousTargets.has(rel);
+}
+
 /** Seeds the collision set with every identifier the library already holds. */
 function seedIdentifiers(dir: string) {
   for (const rel of walk(dir)) {
+    if (isMigrated(rel)) continue;
     const id = parseDenoteName(rel)?.identifier;
     if (id) taken.add(id);
   }
 }
 
-/** A free identifier for `date`, bumping seconds as `freeIdentifier` does. */
-function claim(date: Date): string {
+/**
+ * The identifier for `key`: the one the previous run gave it, else a free
+ * one for `date`, bumping seconds as `freeIdentifier` does.
+ */
+function claim(date: Date, key?: string): string {
+  const kept = key && previousIdentifiers.get(key);
+  if (kept) {
+    taken.add(kept);
+    return kept;
+  }
   const candidate = new Date(date.getTime());
   for (let attempt = 0; attempt < 24 * 3600; attempt++) {
     const id = denoteIdentifier(candidate);
@@ -391,7 +486,7 @@ function scanEntries(
   const pages = rasterize(absPdf);
   const targets: string[] = [];
   pages.forEach((page, i) => {
-    const identifier = claim(date);
+    const identifier = claim(date, `${rel}#p${i + 1}`);
     const title =
       pages.length > 1
         ? `${name.replace(/\.pdf$/i, "")} p${i + 1}`
@@ -479,7 +574,10 @@ function splitDayPage(relPath: string, text: string): Entry[] {
     const end = k + 1 < heads.length ? heads[k + 1][0] : lines.length;
     if (!lines.slice(start + 1, end).some((l) => l.trim())) return; // template scaffolding
     const date = new Date(+year!, months[mon] - 1, +day);
-    const identifier = claim(date);
+    const identifier = claim(
+      date,
+      `${relPath}#${date.toISOString().slice(0, 10)}`,
+    );
     const title = journalTitle(date, config.journalTitleFormat);
     out.push({
       source: relPath,
@@ -549,7 +647,7 @@ function main() {
           scanEntries(rel, abs, date, entries, links, pageImages);
           continue;
         }
-        const identifier = claim(date);
+        const identifier = claim(date, rel);
         const target = `${config.journalFolder}/${denoteAttachmentName(identifier, name)}`;
         links[rel] = target;
         links[name] = links[name] ?? target;
@@ -625,38 +723,16 @@ function main() {
         from = "name";
       }
       if (!date) date = new Date(stat.birthtime);
-      const identifier = claim(date);
-      const jd = jdIdOf(stem);
-      let signature = jd ? `${jd.category}=${jd.id}` : placement.signature;
+      const identifier = claim(date, rel);
       const warnings = [...placement.warnings];
+      const own = signatureOf(placement, stem, dirname(abs));
+      const signature = own.signature;
+      if (own.section) placement.section = own.section;
+      const jd = jdIdOf(stem);
       const cat = placement.category && numberedDir.exec(placement.category);
-      // A folder note takes the folder's address, and is listed with it.
-      const folderNote =
-        cat && !jd && !placement.section
-          ? folderNoteId(dirname(abs), stem)
-          : undefined;
-      if (folderNote) {
-        signature = `${cat![1]}=${folderNote.id}`;
-        placement.section = folderNote.folder;
-      }
-      // The category's own note -- `21.00 iteam`, or `iteam` in `21 iteam`
-      // or its `00 meta` -- is its hub, and `NN=00` is the hub's address.
-      if (
-        cat &&
-        (!placement.section || /^00 /.test(placement.section)) &&
-        (jd?.id === "00" ||
-          sluggify("title", stripPrefixes(stem) ?? stem) ===
-            sluggify("title", cat[2]))
-      ) {
-        signature = `${cat[1]}=00`;
-      }
-      if (
-        jd &&
-        placement.signature &&
-        !placement.signature.startsWith(jd.category)
-      ) {
+      if (jd && cat && jd.category !== cat[1]) {
         warnings.push(
-          `file says ${jd.category}.${jd.id} but lives under ${placement.signature}`,
+          `file says ${jd.category}.${jd.id} but lives under ${cat[1]}`,
         );
       }
       const keywords = [
@@ -707,6 +783,7 @@ function main() {
         keywords,
         category: placement.category,
         section: placement.section,
+        folders: placement.folders,
         warnings,
       });
       links[stem] = target;
@@ -718,7 +795,7 @@ function main() {
         scanEntries(rel, abs, date, entries, links, pageImages);
         continue;
       }
-      const identifier = claim(date);
+      const identifier = claim(date, rel);
       const named = denoteAttachmentName(identifier, name);
       const target = isJournalFolder
         ? `${config.journalFolder}/${named}`
@@ -758,6 +835,7 @@ function main() {
   // before being given up on.
   const libraryByTitle = new Map<string, string>();
   for (const rel of walk(library)) {
+    if (isMigrated(rel)) continue;
     const parsed = parseDenoteName(rel);
     if (parsed?.identifier && parsed.title && /\.org$/.test(rel))
       libraryByTitle.set(parsed.title, rel);
@@ -811,6 +889,7 @@ function main() {
   // --- Duplicates of what the library already has -----------------------------
   const libraryTitles = new Map<string, string>();
   for (const rel of walk(library)) {
+    if (isMigrated(rel)) continue;
     const p = parseDenoteName(rel);
     if (p?.identifier && p.title && /\.org$/.test(rel))
       libraryTitles.set(p.title, rel);

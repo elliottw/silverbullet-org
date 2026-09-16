@@ -29,18 +29,28 @@ preserved); links are tokenised out first and written back as `denote:`,
 `file:`, `zotero:` or bare Org links, so a link never depends on what pandoc
 makes of it.
 
-**The folder tree becomes signatures.** The library is flat; a note that sat
-in `20-29 Missions/21 iteam/14 landslide mediation/` is signed `21=14` — the
-category number and the numbered sub-folder, the two levels Johnny Decimal
-addresses. A deeper or unnumbered folder is not given a number: it survives as
-a section in the category's hub note. The area folder (`20-29 Missions`) is
-implied by the number and dropped; `assets/` folders dissolve.
+**The folder tree becomes signatures — on the IDs, not their contents.** The
+library is flat. In Johnny Decimal an address belongs to an *ID*: a numbered
+folder, or a note that names one. So a signature goes only to the category's
+own note (`21.00 iteam` → `21=00`), a note carrying an ID in its name before
+or after the title (`25.03 Acorn Medic Branding`, `adrianna 61.54`), and a
+folder note — the note named like its numbered folder, inside it
+(`02 howm/Howm.md` → `92=02`) or beside it (`existential.md` next to
+`02 existential/` → `51=02`). Every other note, including everything else in
+an ID's folder, carries none: it is the ID's contents, reached through the
+ID's note. The area folder (`20-29 Missions`) is implied by the number and
+dropped; `assets/` folders dissolve.
 
-**Hub notes.** Each category gets a note at `NN=00` — the vault's own
-`NN.00` note if it had one, otherwise a new one identified `00000000T0000NN`
-— listing the category's notes by the folder they came from: a pre-filled
-`denote-links` block per signature (`==21=14--`), a plain list for a folder
-that had no number, and a catch-all `==21[=-]` block last. Home's numbered
+**Hub notes and ID notes.** Each category gets a hub at `NN=00` — the
+vault's own note where it had one, else a new one identified
+`00000000T00NN00` — listing the notes loose in the category, then its IDs in
+a `denote-links` block on `==NN=[0-9][0-9]--`, which *is* the category's index
+and refreshes itself, then any unnumbered folders as plain lists. Each ID
+gets a note at `NN=MM` — the folder's own note, else a new one identified
+`00000000T00NNMM` and titled after the folder — listing the folder's
+contents by the folders below it. A library note that turns out to be an ID's
+own (a vault stub `Cherise Green 61.46` duplicating the library's
+`cherise-green` note) is renamed to carry the address. Home's numbered
 category lines get their hub linked in place.
 
 **Documents** — PDF, EPUB, HTML, DOCX and the rest — go to Zotero
@@ -79,6 +89,26 @@ wait for `sbRuntime.ready`, and query `index.tag "relation"` for
 `denote-link` relations whose `toTag` is `denote-identifier` — the dangling
 ones. The number to reach is *zero from migrated content*; a library's own
 older dangling links are its own.
+
+## Running it again after the cutover
+
+The pipeline is repeatable against a cut-over library. `manifest.ts` keeps
+every identifier from the previous `manifest.json`, reads the library minus
+the migration's own output, and the converter starts each library note from
+the original the cutover kept under `replaced/`. `convert.ts` rotates the
+last output to `staging-previous/`, and `reconcile.ts` applies the
+difference three-way — previous staging, new staging, the library as it is —
+replacing only files the library still holds as the previous run wrote them
+(dynamic-block bodies aside, since opening a hub refreshes those), renaming
+by identifier where a name changed, updating just the front matter of a
+note edited meanwhile, and listing everything it left alone.
+
+```sh
+npx tsx tools/obsidian-migration/manifest.ts
+npx tsx tools/obsidian-migration/convert.ts
+npx tsx tools/obsidian-migration/reconcile.ts          # dry run, read the lists
+npx tsx tools/obsidian-migration/reconcile.ts --apply
+```
 
 ## Cutover
 

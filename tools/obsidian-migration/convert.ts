@@ -17,6 +17,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  renameSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -29,6 +30,7 @@ import {
   formatDenoteName,
   journalTitle,
   parseDenoteName,
+  rewriteDenoteFrontMatter,
   sluggify,
 } from "../../plug-api/lib/denote.ts";
 import { config } from "./config.ts";
@@ -42,6 +44,23 @@ const manifest: Manifest = JSON.parse(
   readFileSync(join(config.out, "manifest.json"), "utf8"),
 );
 const staging = join(config.out, "staging");
+const previousStaging = join(config.out, "staging-previous");
+
+/**
+ * A library note's text as it was before the migration touched it. Once cut
+ * over, the library holds the migration's own output -- a hub's appended
+ * sections, a merged note's appended body -- and the cutover kept the
+ * originals it replaced under `replaced/`. Those are what every rebuild
+ * starts from, so a second run does not append to the first run's appending.
+ */
+function libraryOriginal(relPath: string): string {
+  relPath = originalOf.get(relPath) ?? relPath;
+  const kept = join(config.out, "replaced", relPath);
+  return readFileSync(
+    existsSync(kept) ? kept : join(config.library, relPath),
+    "utf8",
+  );
+}
 
 /**
  * Vault path → Zotero keys, from the import. A document that is in Zotero
@@ -135,10 +154,7 @@ function planDedup() {
         ),
         e.title,
       );
-      lib = readFileSync(join(config.library, existing), "utf8").replace(
-        /^#\+.*\n/gm,
-        "",
-      );
+      lib = libraryOriginal(existing).replace(/^#\+.*\n/gm, "");
     } catch {
       continue;
     }
@@ -150,8 +166,43 @@ function planDedup() {
     else if (bagSize(b) === 0 || bagSize(a) <= 20) action = "append";
     else action = "keep";
     dedup.set(source, { existing, action, similarity });
-    if (action !== "keep") redirect.set(e.target, existing);
+    if (action !== "keep") redirect.set(e.target, addressed(existing, e));
   }
+}
+
+/** A renamed library note → the name it had, for reading its original text. */
+const originalOf = new Map<string, string>();
+
+/**
+ * A library note standing in for a vault note that carried an address -- a
+ * hub (`21=00`) or an ID note (`21=13`) -- takes that address: the file is
+ * renamed to carry the signature and its front matter says so. The
+ * identifier does not change, so links hold. Without this the ID would
+ * resolve to nothing, the note being the ID's own.
+ */
+function addressed(existing: string, e: Entry): string {
+  const parsed = parseDenoteName(existing);
+  if (!e.signature || !parsed?.identifier || parsed.signature) return existing;
+  const dir = existing.includes("/")
+    ? existing.slice(0, existing.lastIndexOf("/") + 1)
+    : "";
+  const renamed =
+    dir +
+    formatDenoteName({
+      identifier: parsed.identifier,
+      signature: e.signature,
+      title: parsed.title ?? "",
+      keywords: parsed.keywords,
+      extension: parsed.extension,
+    });
+  originalOf.set(renamed, existing);
+  write(
+    renamed,
+    rewriteDenoteFrontMatter(libraryOriginal(existing), "org", {
+      signature: e.signature,
+    }),
+  );
+  return renamed;
 }
 
 /** Case-insensitive fallback for link targets, as Obsidian resolves them. */
@@ -203,6 +254,7 @@ const stats = {
   emptySkipped: 0,
   dedupDropped: 0,
   dedupAppended: 0,
+  idNotes: 0,
   linksUnresolved: 0,
   linksExternal: 0,
   pandocFailures: [] as string[],
@@ -433,8 +485,9 @@ function convertNote(e: Entry) {
     }
     // The library note keeps its name and identifier; the vault's body goes
     // on the end, once (an earlier pass may have staged it already).
-    const lib = stagedLibraryNote(d.existing);
-    write(d.existing, `${lib.trimEnd()}\n\n${body.trim()}\n`);
+    const path = redirect.get(e.target!) ?? d.existing;
+    const lib = stagedLibraryNote(path);
+    write(path, `${lib.trimEnd()}\n\n${body.trim()}\n`);
     stats.dedupAppended++;
     return;
   }
@@ -449,7 +502,7 @@ function convertNote(e: Entry) {
 function stagedLibraryNote(libPath: string): string {
   const staged = join(staging, libPath);
   if (existsSync(staged)) return readFileSync(staged, "utf8");
-  return readFileSync(join(config.library, libPath), "utf8");
+  return libraryOriginal(libPath);
 }
 
 /**
@@ -531,6 +584,44 @@ const takenIdentifiers = (() => {
   return taken;
 })();
 
+/**
+ * The identifier the previous run gave a note it synthesized (a scan-only
+ * journal entry, a hub), found by its title in the previous staging, so it
+ * keeps its identity from one run to the next.
+ */
+let previousByTitleCache: Map<string, string> | undefined;
+const previousByTitle = () => {
+  if (previousByTitleCache) return previousByTitleCache;
+  const map = new Map<string, string>();
+  const walk = (dir: string, rel = "") => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const r = rel ? `${rel}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) walk(join(dir, entry.name), r);
+      else {
+        const parsed = parseDenoteName(entry.name);
+        if (parsed?.identifier && parsed.title && /\.org$/.test(entry.name)) {
+          map.set(
+            `${rel}|${parsed.signature ?? ""}|${parsed.title}`,
+            parsed.identifier,
+          );
+        }
+      }
+    }
+  };
+  if (existsSync(previousStaging)) walk(previousStaging);
+  previousByTitleCache = map;
+  return map;
+};
+function previousIdentifierFor(
+  title: string,
+  signature = "",
+  directory = config.journalFolder,
+): string | undefined {
+  return previousByTitle().get(
+    `${directory}|${signature}|${sluggify("title", title)}`,
+  );
+}
+
 /** An identifier for `date` nothing holds, bumping seconds as Denote does. */
 function freeIdentifier(date: Date): string {
   const candidate = new Date(date.getTime());
@@ -587,8 +678,8 @@ function attachOrphanScans() {
     // its own -- every identifier the manifest or the library holds is taken.
     const [y, m, d] = date.split("-").map(Number);
     const day = new Date(y, m - 1, d);
-    const identifier = freeIdentifier(day);
     const title = journalTitle(day, config.journalTitleFormat);
+    const identifier = previousIdentifierFor(title) ?? freeIdentifier(day);
     const target = `${config.journalFolder}/${formatDenoteName({ identifier, title, keywords: [config.journalKeyword], extension: ".org" })}`;
     const head = formatDenoteFrontMatter(
       {
@@ -610,22 +701,22 @@ function attachOrphanScans() {
 }
 
 // ---------------------------------------------------------------------------
-// Hub notes
+// Hub notes and ID notes
 // ---------------------------------------------------------------------------
 
 /**
- * One hub note per vault category -- the note the category's number
- * resolves to, addressed `NN=00`, so the walk is Home → hub → note. It lists
- * the category's notes by the folder they sat in, since the flat library no
- * longer says: a `denote-links` block per signature (`==21=14`), pre-filled
- * and refreshable in Emacs and SilverBullet alike; a plain list for a folder
- * that had no number (a refresh would empty a block that matches nothing);
- * and a catch-all block for the whole category last, so nothing is lost when
- * the pre-filled lists go stale.
+ * The Johnny Decimal tree, flat. A *category* gets a hub note at `NN=00` --
+ * the vault's own note for it where there was one -- and each *ID* (a
+ * numbered folder under the category) gets a note at `NN=MM`: the folder's
+ * own note where it had one, inside or beside the folder, else a new one
+ * titled after the folder. Nothing else carries an address: the notes in an
+ * ID's folder are its contents, listed in the ID's note by the folder they
+ * sat in; the notes loose in a category are listed in its hub.
  *
- * A note the vault already had for the category (`21.00 iteam`, or `iteam`
- * in `21 iteam`) *is* the hub: the lists are appended to it. A category
- * without a number (`type`, `states`) gets a hub without a signature.
+ * The hub's list of IDs is a `denote-links` block on `==NN=[0-9][0-9]--`,
+ * which is the category's index and refreshes itself in Emacs and
+ * SilverBullet alike. The content lists are plain: they are what the folders
+ * knew, kept as content, and are the user's to edit from here on.
  */
 function writeHubs() {
   const notes = manifest.entries.filter(
@@ -639,91 +730,150 @@ function writeHubs() {
     const numbered = /^(\d{2}) (.+)$/.exec(cat);
     const num = numbered?.[1];
     const name = numbered?.[2] ?? cat;
-    const sections = new Map<string, Entry[]>();
-    const direct: Entry[] = [];
-    for (const e of inCat) {
-      if (e.section) {
-        sections.set(e.section, [...(sections.get(e.section) ?? []), e]);
-      } else {
-        direct.push(e);
-      }
-    }
-    // The hub itself: the vault's `21.00 iteam`, or `iteam` in `21 iteam`
-    // or its `00 meta` (other notes in `00 meta` are the category's meta
-    // notes and carry `21=00` too). It is not listed under itself.
+
     const isIndexFile = (e: Entry) =>
       num !== undefined && new RegExp(`(^|/)${num}\\.00 `).test(e.source);
-    const existing = inCat
-      .filter(
-        (e) =>
-          num !== undefined &&
-          e.signature === `${num}=00` &&
-          (isIndexFile(e) ||
-            sluggify("title", e.title) === sluggify("title", name)),
-      )
+    const hub = inCat
+      .filter((e) => num !== undefined && e.signature === `${num}=00`)
       .sort(
         (a, b) =>
           Number(isIndexFile(b)) - Number(isIndexFile(a)) ||
           a.source.length - b.source.length,
       )[0];
-    const isHub = (e: Entry) => e === existing;
+
+    // IDs: every numbered folder, and every note that names one.
+    type Id = { id: string; folder?: string; note?: Entry; contents: Entry[] };
+    const ids = new Map<string, Id>();
+    const idOf = (id: string) => {
+      if (!ids.has(id)) ids.set(id, { id, contents: [] });
+      return ids.get(id)!;
+    };
+    const loose: Entry[] = [];
+    const plainSections = new Map<string, Entry[]>();
+    for (const e of inCat) {
+      if (e === hub) continue;
+      const sig = e.signature && /^\d{2}=(\d{2})$/.exec(e.signature);
+      const sub = e.section && /^(?:\d{2}\.)?(\d{2}) (.+)$/.exec(e.section);
+      if (num && sig && sig[1] !== "00") {
+        const id = idOf(sig[1]);
+        // The folder's own note wins over a stray file naming the same ID.
+        if (!id.note || (sub && sub[1] === sig[1])) id.note = e;
+        else id.contents.push(e);
+        if (sub && sub[1] === sig[1]) id.folder = e.section;
+        continue;
+      }
+      if (num && sub) {
+        const id = idOf(sub[1]);
+        id.folder = e.section;
+        id.contents.push(e);
+      } else if (e.section) {
+        plainSections.set(e.section, [
+          ...(plainSections.get(e.section) ?? []),
+          e,
+        ]);
+      } else {
+        loose.push(e);
+      }
+    }
+
     const list = (entries: Entry[]) =>
       entries
-        .filter((e) => !isHub(e))
         .map(linkTarget)
         .sort((a, b) => a.title.localeCompare(b.title))
         .map((l) => `- [[denote:${l.identifier}][${l.title}]]`);
-    const block = (
-      heading: string,
-      regexp: string | undefined,
-      entries: Entry[],
-      sortBy = "title",
-    ) =>
-      [
-        `* ${heading}`,
-        ...(regexp
-          ? [
-              `#+BEGIN: denote-links :regexp ${JSON.stringify(regexp)} :not-regexp nil :excluded-dirs-regexp nil :sort-by-component ${sortBy} :reverse-sort nil :id-only nil :include-date nil`,
-              ...list(entries),
-              "#+END:",
-            ]
-          : list(entries)),
-        "",
-      ].join("\n");
-    const body = [
-      ...(list(direct).length
-        ? [block(name, num ? `==${num}--` : undefined, direct)]
-        : []),
-      ...[...sections]
+
+    // ID notes: the folder's contents, grouped by the folders below it.
+    const idLinks: { signature: string; identifier: string; title: string }[] =
+      [];
+    for (const id of [...ids.values()].sort((a, b) =>
+      a.id.localeCompare(b.id),
+    )) {
+      const signature = `${num}=${id.id}`;
+      const title = id.folder
+        ? id.folder.replace(/^(?:\d{2}\.)?\d{2} /, "")
+        : (id.note?.title ?? signature);
+      const byFolder = new Map<string, Entry[]>();
+      for (const e of id.contents) {
+        const below = (e.folders ?? []).slice(1).join("/");
+        byFolder.set(below, [...(byFolder.get(below) ?? []), e]);
+      }
+      const sections = [...byFolder]
         .sort(([a], [b]) => a.localeCompare(b))
-        .filter(([, entries]) => list(entries).length)
-        .map(([section, entries]) => {
-          const sub = num && /^(?:\d{2}\.)?(\d{2}) /.exec(section);
-          return block(
-            section,
-            sub ? `==${num}=${sub[1]}--` : undefined,
-            entries,
-          );
-        }),
-      ...(num
-        ? [block(`Everything in ${num}`, `==${num}[=-]`, inCat, "signature")]
+        .flatMap(([below, entries]) => [
+          `* ${below || title}`,
+          ...list(entries),
+          "",
+        ])
+        .join("\n");
+      let identifier: string;
+      if (id.note) {
+        const path = redirect.get(id.note.target!) ?? id.note.target!;
+        identifier = parseDenoteName(path)?.identifier ?? id.note.identifier;
+        if (id.contents.length) {
+          const current = redirect.has(id.note.target!)
+            ? stagedLibraryNote(path)
+            : readFileSync(join(staging, path), "utf8");
+          write(path, `${current.trimEnd()}\n\n${sections}`);
+        }
+      } else {
+        identifier = syntheticIdentifier(
+          `00000000T00${num}${id.id}`,
+          title,
+          signature,
+        );
+        const target = formatDenoteName({
+          identifier,
+          signature,
+          title,
+          keywords: [],
+          extension: ".org",
+        });
+        write(
+          target,
+          `${frontMatterFor(title, identifier, signature)}\n${sections}`,
+        );
+        stats.idNotes++;
+      }
+      idLinks.push({ signature, identifier, title: id.note?.title ?? title });
+    }
+
+    const body = [
+      ...(loose.length ? [`* ${name}`, ...list(loose), ""] : []),
+      ...(num && idLinks.length
+        ? [
+            "* IDs",
+            `#+BEGIN: denote-links :regexp "==${num}=[0-9][0-9]--" :not-regexp nil :excluded-dirs-regexp nil :sort-by-component signature :reverse-sort nil :id-only nil :include-date nil`,
+            ...idLinks.map(
+              (l) => `- [[denote:${l.identifier}][${l.signature}  ${l.title}]]`,
+            ),
+            "#+END:",
+            "",
+          ]
         : []),
+      ...[...plainSections]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .flatMap(([section, entries]) => [
+          `* ${section}`,
+          ...list(entries),
+          "",
+        ]),
     ].join("\n");
 
-    const existingPath = existing
-      ? (redirect.get(existing.target!) ?? existing.target!)
-      : undefined;
     let identifier: string;
-    if (existing && existingPath) {
-      const current = redirect.has(existing.target!)
-        ? stagedLibraryNote(existingPath)
-        : readFileSync(join(staging, existingPath), "utf8");
-      write(existingPath, `${current.trimEnd()}\n\n${body}`);
-      identifier =
-        parseDenoteName(existingPath)?.identifier ?? existing.identifier;
+    if (hub) {
+      const path = redirect.get(hub.target!) ?? hub.target!;
+      const current = redirect.has(hub.target!)
+        ? stagedLibraryNote(path)
+        : readFileSync(join(staging, path), "utf8");
+      write(path, `${current.trimEnd()}\n\n${body}`);
+      identifier = parseDenoteName(path)?.identifier ?? hub.identifier;
     } else {
-      identifier = hubIdentifier(num);
       const signature = num ? `${num}=00` : undefined;
+      identifier = syntheticIdentifier(
+        num ? `00000000T00${num}00` : "00000002T000001",
+        name,
+        signature ?? "",
+      );
       const target = formatDenoteName({
         identifier,
         signature,
@@ -731,23 +881,30 @@ function writeHubs() {
         keywords: [],
         extension: ".org",
       });
-      const head = formatDenoteFrontMatter(
-        {
-          title: name,
-          date: denoteDate(new Date(), "org"),
-          keywords: [],
-          hasKeywords: false,
-          identifier,
-          signature,
-        },
-        "org",
-      );
-      write(target, `${head}\n${body}`);
+      write(target, `${frontMatterFor(name, identifier, signature)}\n${body}`);
     }
     stats.indexes++;
     homeLinks.push({ num, name, identifier });
   }
   writeHome();
+}
+
+function frontMatterFor(
+  title: string,
+  identifier: string,
+  signature: string | undefined,
+): string {
+  return formatDenoteFrontMatter(
+    {
+      title,
+      date: denoteDate(new Date(), "org"),
+      keywords: [],
+      hasKeywords: false,
+      identifier,
+      signature,
+    },
+    "org",
+  );
 }
 
 /**
@@ -762,7 +919,7 @@ function writeHome() {
   const homeName = config.linkAliases["✱ Home"];
   let home = "";
   try {
-    home = readFileSync(join(config.library, homeName), "utf8").trimEnd();
+    home = libraryOriginal(homeName).trimEnd();
   } catch {
     home = `#+title:      Home\n#+identifier: 00000000T000000\n`;
   }
@@ -806,19 +963,29 @@ function writeHome() {
 const homeLinks: { num?: string; name: string; identifier: string }[] = [];
 
 /**
- * A synthesized hub's identifier: `00000000T0000NN` for category NN,
- * `00000000T00NN0k` when the vault has a second category with that number
- * (it has two 81s), and `00000000T0090kk` for a category with no number.
+ * An identifier for a note the migration makes up -- a hub, an ID note --
+ * that no real note could have: an all-zero date. `00000000T00NN00` for
+ * category NN, `00000000T00NNMM` for ID NN.MM. When that is taken (two
+ * categories share a number; two folders share an ID), the day is bumped:
+ * `00000001T…`. A note made in an earlier run keeps its identifier, found
+ * by its title and address in the previous staging.
  */
-const hubIdentifiers = new Set<string>();
-function hubIdentifier(num: string | undefined): string {
-  let id = num ? `00000000T0000${num}` : "00000000T009001";
-  for (let k = 1; hubIdentifiers.has(id); k++) {
-    id = num
-      ? `00000000T00${num}0${k}`
-      : `00000000T0090${String(k + 1).padStart(2, "0")}`;
+const synthetic = new Set<string>();
+function syntheticIdentifier(
+  base: string,
+  title: string,
+  signature: string,
+): string {
+  const kept = previousIdentifierFor(title, signature, "");
+  if (kept && !synthetic.has(kept)) {
+    synthetic.add(kept);
+    return kept;
   }
-  hubIdentifiers.add(id);
+  let id = base;
+  for (let day = 1; synthetic.has(id) || id === "00000000T000000"; day++) {
+    id = `${String(day).padStart(8, "0")}T${base.slice(9)}`;
+  }
+  synthetic.add(id);
   return id;
 }
 
@@ -842,12 +1009,14 @@ const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 // ---------------------------------------------------------------------------
 
 function main() {
-  planDedup();
   if (!only) {
-    rmSync(staging, { recursive: true, force: true });
+    // The last run's output is what the next reconcile compares against.
+    rmSync(previousStaging, { recursive: true, force: true });
+    if (existsSync(staging)) renameSync(staging, previousStaging);
     rmSync(join(config.out, "staging-code"), { recursive: true, force: true });
   }
   mkdirSync(staging, { recursive: true });
+  planDedup();
   const started = Date.now();
   let n = 0;
   for (const e of manifest.entries) {
@@ -911,6 +1080,7 @@ function main() {
     `| attachments copied | ${stats.attachments} |`,
     `| code folders staged for ~/code | ${stats.code} |`,
     `| hub notes | ${stats.indexes} |`,
+    `| ID notes made for folders without one | ${stats.idNotes} |`,
     `| links → notes (\`denote:\`) | ${stats.linksToNotes} |`,
     `| links → files (\`file:\`) | ${stats.linksToFiles} |`,
     `| links → Zotero (\`zotero:\`) | ${stats.linksToZotero} |`,
