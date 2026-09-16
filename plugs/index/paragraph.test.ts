@@ -131,4 +131,8 @@ test("an Org link's context is its outline path and its paragraph", () => {
   );
   expect(onHeading.heading).toBe("Top");
   expect(onHeading.snippet).toBe("[[denote:1][Sub]]\nBody.");
+  // In a list, the element is the item and what is under it.
+  const list = "* Day\n- one\n- met [[denote:1][Bo]]\n  - said hi\n- three\n";
+  const inList = orgLinkContext(buildLineIndex(list), list.indexOf("[[denote"));
+  expect(inList.snippet).toBe("- met [[denote:1][Bo]]\n  - said hi");
 });

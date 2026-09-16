@@ -165,21 +165,39 @@ export function orgLinkContext(
   }
 
   // The paragraph: contiguous non-blank lines around the link, headings
-  // excluded, capped at maxLines with the link's line kept in view.
+  // excluded, capped at maxLines with the link's line kept in view. In a
+  // list, the element is the item: that line and what is indented under
+  // it, not its siblings -- a journal day is one long list, and the other
+  // bullets are other matters.
+  const indent = (line: string) => /^\s*/.exec(line)![0].length;
+  const isItem = (line: string) => /^\s*(?:[-+*]|\d+[.)])\s/.test(line);
   let start = at;
-  while (
-    start > 0 &&
-    !isBlank(lines[start - 1]) &&
-    !isHeading(lines[start - 1])
-  )
-    start--;
   let end = at;
-  while (
-    end + 1 < lines.length &&
-    !isBlank(lines[end + 1]) &&
-    !isHeading(lines[end + 1])
-  )
-    end++;
+  if (isItem(lines[at])) {
+    const depth = indent(lines[at]);
+    while (
+      end + 1 < lines.length &&
+      !isBlank(lines[end + 1]) &&
+      !isHeading(lines[end + 1]) &&
+      indent(lines[end + 1]) > depth
+    )
+      end++;
+  } else {
+    while (
+      start > 0 &&
+      !isBlank(lines[start - 1]) &&
+      !isHeading(lines[start - 1]) &&
+      !isItem(lines[start - 1])
+    )
+      start--;
+    while (
+      end + 1 < lines.length &&
+      !isBlank(lines[end + 1]) &&
+      !isHeading(lines[end + 1]) &&
+      !isItem(lines[end + 1])
+    )
+      end++;
+  }
   if (end - start + 1 > maxLines) {
     const before = Math.min(at - start, Math.floor(maxLines / 2));
     start = at - before;

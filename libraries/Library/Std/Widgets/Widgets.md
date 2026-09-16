@@ -251,6 +251,13 @@ end
 -- a link is reduced to the text Org itself displays for it.
 local function plainOrgSnippet(text)
   text = string.gsub(text, "%[%[[^%]]*%]%[([^%]]*)%]%]", "%1")
+  -- A bare Denote link reads as the note's title, as it does on the page.
+  text = string.gsub(text, "%[%[denote:(%w+)%]%]", function(id)
+    local note = index.getObjectByRef(id, "denote", id)
+    return note and note.title or id
+  end)
+  -- A bare file link is an inline image: nothing to read.
+  text = string.gsub(text, "%[%[file:[^%]]*%]%]%s*", "")
   text = string.gsub(text, "%[%[([^%]]*)%]%]", "%1")
   return text
 end
