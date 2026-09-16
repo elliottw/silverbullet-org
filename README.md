@@ -66,8 +66,23 @@ and the arrow-key forms work everywhere.
 | `Zotero: Add File` | — |
 | `Denote: Toggle Link Display` | `org-toggle-link-display` |
 | `Denote: Rename File from Front Matter` | `denote-rename-file-using-front-matter` |
+| `Denote: Rename` | `denote-rename-file` |
+| `Denote: Add Keywords` / `Remove Keywords` | `denote-keywords-add` / `-remove` |
+| `Denote: Set Signature` | `denote-rename-file-signature` |
+| `Denote: Browse by Signature` | `denote-sort-dired` |
+| `Denote: Signature Parent` / `Children` / `Siblings` / `Next` / `Previous` | `denote-sequence-find` |
+| `Denote: New Child Note` / `New Sibling Note` | `denote-sequence-new-child-of-current` / `-sibling-of-current` |
+| `Denote: Find Link` / `Find Backlink` | `denote-find-link` / `denote-find-backlink` |
+| `Denote: Random Note` | `denote-explore-random-note` |
+| `Denote: Signatures Page`, `Keywords Page`, `Library Health` | `denote-sequence-dired`, `denote-explore-*` |
+| `Denote: Journal Calendar` / `Journal Open Date` | `denote-journal-calendar` |
 | `Denote: Update Dynamic Blocks` | `org-update-all-dblocks` |
 | `Denote: Insert Links Block` and three siblings | `denote-org-extras-dblock-insert-*` |
+
+The signature, keyword and journal commands are described in
+[docs/Denote.md](docs/Denote.md#signatures-as-sequences); the generated pages
+under `denote/` (`denote/signatures`, `denote/keywords`, `denote/calendar`,
+`denote/health`) in [Generated pages](docs/Denote.md#generated-pages).
 
 Two more are reached without the palette:
 
@@ -224,6 +239,33 @@ same `.bib`; a `zotero:` link wants one line:
   (lambda (key) (browse-url (concat "zotero://select/library/items/" key))))
 ```
 
+## A flat library, and where the structure went
+
+Denote keeps every note in one directory and puts the metadata in the file
+name. That is also how this fork expects a library: no folder tree, apart from
+the journal's own directory. What a tree would say with paths goes into three
+Denote-native places:
+
+* **The signature** is the address. A Johnny Decimal `21.14` is `==21=14` in
+  the file name — sortable in Dired, matched by a dynamic block's `:regexp`,
+  and there for any tool that lists files. `Denote: Browse by Signature` and
+  the parent/children/siblings commands walk it; `denote/signatures` draws
+  it as a tree.
+* **Keywords** cut across it.
+* **Hub notes** carry the curated part. One note per category, addressed
+  `NN=00`, with a few hand-picked links at the top and `denote-links` blocks
+  below — one per signature the category uses, and a catch-all `==NN[=-]`
+  last. Home links the hubs, a hub links its notes: two hops to anything, and
+  the hub is content you edit rather than structure you maintain. Blocks
+  refresh when the hub is opened, so it reads true.
+
+Documents that are not notes — PDFs, papers, scans, project files — live in
+Zotero and are linked by `zotero:` (see [Attachments and
+Zotero](#attachments-and-zotero)); images stay beside the notes that show
+them. `tools/obsidian-migration/` is the tool that moved a Johnny Decimal
+Obsidian vault into this shape, and its
+[README](tools/obsidian-migration/README.md) records the decisions.
+
 ## Journal
 
 The `Journal:` commands are `denote-journal`. `Journal: Today` (`Ctrl-q j`)
@@ -234,7 +276,15 @@ is a Denote note Emacs also recognises as one.
 An entry lives in `denote.journalDirectory`, carries `denote.journalKeyword`,
 and is titled with the date. Which day an entry belongs to is decided by its
 **identifier**, not its front-matter date — the same thing denote-journal
-matches on.
+matches on. An entry written up after the fact is stamped with the day it is
+for, so the day finds it again.
+
+**`Denote: Journal Calendar`** opens `denote/calendar`, a year of the journal
+laid out month by month. A day with an entry links to it; a day without is a
+faint `journal:YYYY-MM-DD` link that creates the entry when followed — the
+same gesture as picking a date in Emacs's calendar, and the usual way to fill
+in a past day. `journal:` links work in any note, and `Denote: Journal Open
+Date` takes a date from a prompt.
 
 | Key | Default | Mirrors |
 |---|---|---|
@@ -254,6 +304,7 @@ is left visible in the title rather than silently dropped.
 | `denote.fileType` | `org` | Format new notes are written in |
 | `denote.renameOnSave` | `true` | Rename the file when its front matter changes |
 | `denote.updateDblocksOnSave` | `true` | Regenerate dynamic blocks on save |
+| `denote.updateDblocksOnOpen` | `true` | Regenerate dynamic blocks when a note is opened |
 
 If you keep the library in Emacs, exclude its droppings — otherwise a backup
 per note is indexed as an attachment:

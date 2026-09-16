@@ -152,13 +152,16 @@ An Org dynamic block — `#+BEGIN: denote-links :regexp "_costs"` … `#+END:` �
 generated content held in the file. Its body is ordinary Org, so the links it
 holds render and resolve like any other.
 
-Blocks refresh **on save**, so a block is never stale while you are reading it.
-Only the page open in the editor is rewritten — a save arriving from sync
-belongs to a buffer this does not own — and the rewrite is a no-op once
-nothing changes, so it settles after one pass. The delimiters are left intact,
-so the file stays a valid Org dynamic block for Emacs. Set
-`denote.updateDblocksOnSave` to `false` to make it manual; **Denote: Update
-Dynamic Blocks** does it on demand either way.
+Blocks refresh **when a note is opened and on save**, so a block is never
+stale while you are reading it — a hub page lists the notes written and
+renamed while it sat closed, without a keystroke. Only the page open in the
+editor is rewritten — a save arriving from sync belongs to a buffer this does
+not own — the rewrite steps aside if you started typing while it rendered,
+and it is a no-op once nothing changes, so it settles after one pass. The
+delimiters are left intact, so the file stays a valid Org dynamic block for
+Emacs. Set `denote.updateDblocksOnOpen` or `denote.updateDblocksOnSave` to
+`false` to make either manual; **Denote: Update Dynamic Blocks** does it on
+demand either way.
 
 `:regexp` is matched against the whole **file name**, which is why a keyword
 (`_costs`) or a signature (`==6`) works as a filter. `:not-regexp`,
@@ -172,9 +175,90 @@ else, so left alone they would silently drop notes. And `.txt` notes count —
 Denote treats `.org`, `.md` and `.txt` alike, but only the first two are
 SilverBullet pages, so `.txt` notes are read separately rather than missed.
 
-Only `denote-links` is generated. The other block types
-(`denote-backlinks`, `denote-missing-links`, `denote-files`,
-`denote-files-as-headings`) are left untouched rather than emptied.
+`denote-links`, `denote-backlinks` and `denote-missing-links` are
+generated. `denote-files` and `denote-files-as-headings` are left untouched
+rather than emptied.
+
+# Signatures as sequences
+The signature is the component that orders and groups notes. Denote's own
+`denote-sequence` reads it as a place in a tree: `21=14=3` is the third child
+of `21=14`, which is the fourteenth child of `21`. A [Johnny
+Decimal](https://johnnydecimal.com) address is the same thing with two-digit
+components, and works unchanged.
+
+The library stays flat. What a folder tree says with paths, the signature
+says in the file name — sortable in Dired, filterable by a dynamic block's
+`:regexp` (`==21=14--` is one folder's worth of notes; `==21[=-]` a whole
+category), and readable by any tool that lists files.
+
+| Command | Does | Emacs |
+|---|---|---|
+| `Denote: Browse by Signature` | Every signed note, in sequence order. Type `21=` to narrow to a branch. | `denote-sort-dired` |
+| `Denote: Signature Parent` | The note above: `21=14` → `21`, or `21=00` where a hub holds the category's address | `denote-sequence-find` |
+| `Denote: Signature Children` | One level down. From a `NN=00` hub, the category's notes | `denote-sequence-find` |
+| `Denote: Signature Siblings` | The same parent, the same depth | `denote-sequence-find` |
+| `Denote: Signature Next` / `Previous` | Along the siblings | `denote-sequence-find-next-sibling` |
+| `Denote: New Child Note` / `New Sibling Note` | A note whose signature is the next free one — `21=09` is followed by `21=10`, at the siblings' width. The proposal can be edited. | `denote-sequence-new-child-of-current` |
+| `Denote: Set Signature` | Just the signature | `denote-rename-file-signature` |
+
+Sequence order is numeric where both components are numbers (`21=2` before
+`21=14`) and textual otherwise, so Luhmann-style `1a`, `1a1`, `1b` sort as
+Denote sorts them.
+
+**The hub pattern.** Give each category a note addressed `NN=00`: a few
+curated links at the top — the kind of annotation a folder can never hold —
+and `denote-links` blocks below, one per signature the category uses, with a
+catch-all `==NN[=-]` block last so nothing falls through. Home links the hubs;
+a hub links its notes; that is two hops to anything, and the hub is content
+you can edit rather than structure you have to maintain.
+
+# Renaming in place
+Editing the front matter *is* the rename — see [[#Keeping the file name in
+step]] — but a prompt is quicker on a phone. All of these rewrite the front
+matter and let the file name follow; links address the identifier, which
+never changes, so nothing that points at the note breaks.
+
+| Command | Emacs |
+|---|---|
+| `Denote: Rename` — title, keywords and signature, each defaulting to what the note has | `denote-rename-file` |
+| `Denote: Add Keywords` — pick from the library's keywords, or type new ones | `denote-keywords-add` |
+| `Denote: Remove Keywords` — pick one of the note's own | `denote-keywords-remove` |
+| `Denote: Set Signature` | `denote-rename-file-signature` |
+
+# Generated pages
+Some views are better read than commanded. Pages under `denote/` do not
+exist on disk: opening one generates it, read-only, from the index — the way
+`denote-sequence-dired` or a `denote-explore` buffer is generated in Emacs.
+Reopen to refresh.
+
+| Page | Shows | Emacs |
+|---|---|---|
+| `denote/signatures` | Every signed note as a tree, in sequence order | `denote-sequence-dired` |
+| `denote/signatures/21` | One branch of it | `denote-sequence-dired` with a prefix |
+| `denote/keywords` | Every keyword with its count, most used first | `denote-explore-keywords-barchart` |
+| `denote/keywords/recipe` | The notes carrying one keyword | `denote-sort-dired` by keyword |
+| `denote/calendar`, `denote/calendar/2024` | A year of the journal — see [[#Journal calendar]] | `denote-journal-calendar` |
+| `denote/health` | Identifiers shared by two files, links to identifiers no note carries, file names out of step with their front matter | `denote-explore` |
+
+`Denote: Signatures Page`, `Denote: Keywords Page`, `Denote: Journal
+Calendar` and `Denote: Library Health` open them from the palette.
+
+Three pickers round this out: `Denote: Find Link` (the notes this one links
+to — `denote-find-link`), `Denote: Find Backlink` (the notes linking here —
+`denote-find-backlink`) and `Denote: Random Note` (`denote-explore-random-note`).
+
+# Journal calendar
+`denote/calendar` is a year of the journal, a month per section, laid out as
+a calendar. A day with an entry links to it; a day without is a
+`journal:YYYY-MM-DD` link, drawn faint, which **creates the entry for that
+day** when followed — the same gesture as choosing a date in
+`denote-journal-calendar`, and the usual way to write up a day after the
+fact. The entry is stamped with the day it is for, not the day it was made,
+so the calendar finds it again.
+
+`journal:` links work in any note, not only the calendar: `[[journal:2025-08-20][that
+Wednesday]]` opens or creates the entry. `Denote: Journal Open Date` does the
+same from a prompt.
 
 # Images and files
 Dropping or pasting a file into an Org page uploads it and writes an Org link:
@@ -211,12 +295,10 @@ sections above.
 
 ## 2. Keyword-centric browsing
 Denote deliberately has no folders: keywords *are* the organisation, so
-browsing by keyword is the main way around a library.
+browsing by keyword is the main way around a library. `denote/keywords` and
+`denote/keywords/<keyword>` are the browser and the filtered list. Still
+open:
 
-* A **keyword browser**: every keyword with its note count, plus *All* and
-  *Untagged*, sortable alphabetically, by count, or by recency.
-* A **note list** filtered to the selected keyword, sortable by date modified
-  or by title.
 * **Rename a keyword** across every note that carries it — in both file names
   and front matter.
 * **Remove a keyword** across every note.
@@ -227,10 +309,9 @@ browsing by keyword is the main way around a library.
 Renaming is routine in Denote, because the title and keywords live *in* the
 file name. These keep a library consistent.
 
-* **Rename with prompts** (`denote-rename-file`) — title, keywords and
-  signature in one pass. The targeted variants (`denote-rename-file-title`,
-  `-keywords`, `-signature`, `-date`) have nothing left to do here: editing the
-  front matter *is* the rename, and it happens on save.
+* `denote-rename-file`, `denote-keywords-add`/`-remove` and the signature
+  variant are built — see [[#Renaming in place]]. `denote-rename-file-date`
+  is not: an identifier is identity.
 * **Change file type** (`denote-change-file-type-and-front-matter`) — convert a
   note between Org, Markdown and plain text, rewriting its front matter.
 
@@ -238,17 +319,17 @@ file name. These keep a library consistent.
 Each is a separate Emacs package; each maps onto something SilverBullet
 already does well.
 
-* **Journal** (`denote-journal`) — today's entry, created on demand, plus a
-  calendar view. SilverBullet's daily-note machinery is the obvious host.
-* **Sequence notes** (`denote-sequence`) — Luhmann-style hierarchical
-  signatures (`1a`, `1a1`, `1b`). The signature component is already parsed
-  and indexed.
-* **The other dynamic block types** — `denote-backlinks`,
-  `denote-missing-links`, `denote-files` and `denote-files-as-headings`.
+* **Journal** (`denote-journal`) — built, calendar included; see
+  [[#Journal calendar]].
+* **Sequence notes** (`denote-sequence`) — built; see [[#Signatures as
+  sequences]]. Reparenting a whole branch at once is not.
+* **The other dynamic block types** — `denote-files` and
+  `denote-files-as-headings` remain.
 * **Silos** (`denote-silo`) — several independent Denote directories.
-* **Explore** (`denote-explore`) — library statistics and link graphs, which
-  the existing object-graph plug could render.
-* **Bibliography** (`citar-denote`) — notes attached to bibliography entries.
+* **Explore** (`denote-explore`) — `denote/health` and `denote/keywords`
+  cover the hygiene and keyword views; the link graph, which the existing
+  object-graph plug could render, does not exist yet.
+* **Bibliography** (`citar-denote`) — built on Zotero; see the README.
 
 ## 5. Smaller conveniences
 `denote-region` (make a note from the selected text), `denote-template`,
