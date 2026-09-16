@@ -227,6 +227,15 @@ async function actionClickOrActionEnter(
           await system.invokeFunction("index.zoteroOpenItemKey", zotero[1]);
           return true;
         }
+        // `journal:YYYY-MM-DD` is that day's journal entry, made if need be.
+        const journal = /^journal:(\d{4}-\d{2}-\d{2})$/.exec(target);
+        if (journal) {
+          await system.invokeFunction(
+            "index.denoteJournalOpenOrCreate",
+            journal[1],
+          );
+          return true;
+        }
         // `file:` addresses something in the space; anything else is external.
         const filePath = target.startsWith("file:") ? target.slice(5) : null;
         if (filePath) {

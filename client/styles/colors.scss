@@ -479,6 +479,13 @@ a,
   background-color: var(--editor-wiki-link-page-background-color);
 }
 
+// A `journal:` link names a day that may have no entry yet: drawn faint,
+// so a calendar reads at a glance which days were written.
+a.sb-journal-link {
+  color: var(--editor-wiki-link-page-missing-color);
+  text-decoration: none;
+}
+
 a.sb-wiki-link-missing,
 .sb-wiki-link-missing>.sb-wiki-link {
   color: var(--editor-wiki-link-page-missing-color);

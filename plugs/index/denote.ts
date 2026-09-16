@@ -344,6 +344,13 @@ export type NewNoteSpec = {
    * Denote's library is otherwise flat: keywords are the organisation.
    */
   directory?: string;
+  /**
+   * The moment the note is *for*, which the identifier is minted from: a
+   * journal entry for a past day carries that day, as `denote-journal`'s
+   * date prompt gives it, so the day's entry can be found again by its
+   * identifier. Defaults to now.
+   */
+  date?: Date;
 };
 
 /**
@@ -356,7 +363,7 @@ export async function createDenoteNote(spec: NewNoteSpec): Promise<string> {
   const fileType =
     spec.fileType ??
     ((await system.getConfig("denote.fileType", "org")) as DenoteFileType);
-  const now = new Date();
+  const now = spec.date ?? new Date();
   const identifier = await freeIdentifier(now);
   // The signature is sluggified once and used for both the file name and the
   // front matter, so the two agree — as they do in real Denote notes. Only the
@@ -1501,6 +1508,7 @@ export async function denoteJournalOpenOrCreate(
     title: journalTitle(when, config.titleFormat),
     keywords: [config.keyword],
     directory: config.directory,
+    date: when,
   });
   const text = await space.readPage(pageName);
   await editor.navigate({

@@ -840,3 +840,192 @@ export function parseLocalDate(dateStr: string): Date {
 export function journalDateStamp(date: Date): string {
   return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}`;
 }
+
+// ---------------------------------------------------------------------------
+// Rewriting front matter in place
+// ---------------------------------------------------------------------------
+
+export type FrontMatterChanges = {
+  title?: string;
+  keywords?: string[];
+  /** An empty string removes the signature line, as Denote does. */
+  signature?: string;
+};
+
+/**
+ * `denote-rewrite-front-matter`: changes the title, keywords and signature
+ * lines of a note's front matter and leaves everything else -- date,
+ * identifier, the body, the user's own lines -- exactly as it was. A field
+ * whose line is missing is added where Denote would put it: the signature
+ * after the identifier, the keywords after the date, the title first.
+ */
+export function rewriteDenoteFrontMatter(
+  text: string,
+  fileType: DenoteFileType,
+  changes: FrontMatterChanges,
+): string {
+  const spec = frontMatterSpecs[fileType];
+  // The template writes each line the way Denote formats it for this type;
+  // the wanted lines are picked out of one rendering.
+  const rendered = spec
+    .template({
+      title: changes.title ?? "",
+      date: "",
+      keywords: changes.keywords ?? [],
+      identifier: "",
+      signature: changes.signature ?? "",
+    })
+    .split("\n");
+  const lineFor = (field: "title" | "keywords" | "signature") =>
+    rendered.find((line) => spec[field].test(line))!;
+
+  const lines = text.split("\n");
+  const end = frontMatterEnd(lines, spec);
+  const indexOf = (field: keyof FrontMatterSpec & string) =>
+    lines.findIndex(
+      (line, i) => i < end && (spec[field as "title"] as RegExp).test(line),
+    );
+
+  if (changes.title !== undefined) {
+    const at = indexOf("title");
+    if (at === -1) {
+      lines.splice(
+        fileType === "org" || fileType === "text" ? 0 : 1,
+        0,
+        lineFor("title"),
+      );
+    } else {
+      lines[at] = lineFor("title");
+    }
+  }
+  if (changes.keywords !== undefined) {
+    const at = indexOf("keywords");
+    if (at === -1) {
+      const after = indexOf("date");
+      lines.splice(
+        after === -1 ? indexOf("title") + 1 : after + 1,
+        0,
+        lineFor("keywords"),
+      );
+    } else {
+      lines[at] = lineFor("keywords");
+    }
+  }
+  if (changes.signature !== undefined) {
+    const at = indexOf("signature");
+    if (!changes.signature) {
+      if (at !== -1) lines.splice(at, 1);
+    } else if (at === -1) {
+      const after = indexOf("identifier");
+      lines.splice(
+        after === -1 ? frontMatterEnd(lines, spec) : after + 1,
+        0,
+        lineFor("signature"),
+      );
+    } else {
+      lines[at] = lineFor("signature");
+    }
+  }
+  return lines.join("\n");
+}
+
+/** The line index just past the front matter, for a type's notation. */
+function frontMatterEnd(lines: string[], spec: FrontMatterSpec): number {
+  if (spec === frontMatterSpecs["markdown-yaml"] && lines[0] === "---") {
+    const close = lines.indexOf("---", 1);
+    return close === -1 ? lines.length : close;
+  }
+  if (spec === frontMatterSpecs["markdown-toml"] && lines[0] === "+++") {
+    const close = lines.indexOf("+++", 1);
+    return close === -1 ? lines.length : close;
+  }
+  // Org and text: the header is the run of lines that look like keys.
+  let i = 0;
+  while (
+    i < lines.length &&
+    (lines[i].startsWith("#+") || /^[a-z]+\s*:/i.test(lines[i]))
+  ) {
+    i++;
+  }
+  return i;
+}
+
+// ---------------------------------------------------------------------------
+// Signatures as sequences
+// ---------------------------------------------------------------------------
+
+/**
+ * A signature read as a sequence, the way `denote-sequence` reads it in its
+ * numeric scheme: `21=14=3` is the third child of `21=14`, which is the
+ * fourteenth child of `21`. A Johnny Decimal address is such a sequence with
+ * two-digit components.
+ */
+export function signatureComponents(signature: string): string[] {
+  return signature.split("=").filter(Boolean);
+}
+
+/** `21=14` → `21`; a top-level signature has no parent. */
+export function signatureParent(signature: string): string | undefined {
+  const parts = signatureComponents(signature);
+  return parts.length > 1 ? parts.slice(0, -1).join("=") : undefined;
+}
+
+/** Whether `child` sits directly under `parent` in the sequence. */
+export function isSignatureChildOf(child: string, parent: string): boolean {
+  return signatureParent(child) === parent;
+}
+
+/**
+ * Orders signatures as a sequence: component by component, numerically where
+ * both are numbers (`21=2` before `21=14`), otherwise as text, a shorter
+ * sequence before its own children.
+ */
+export function compareSignatures(a: string, b: string): number {
+  const pa = signatureComponents(a);
+  const pb = signatureComponents(b);
+  for (let i = 0; i < Math.min(pa.length, pb.length); i++) {
+    const na = Number(pa[i]);
+    const nb = Number(pb[i]);
+    const c =
+      Number.isFinite(na) && Number.isFinite(nb) && pa[i] !== "" && pb[i] !== ""
+        ? na - nb
+        : pa[i].localeCompare(pb[i]);
+    if (c !== 0) return c;
+  }
+  return pa.length - pb.length;
+}
+
+/**
+ * The next free child of `parent` given the signatures that exist: one past
+ * the highest numeric child, written as wide as the widest sibling so a
+ * Johnny Decimal `21=09` is followed by `21=10`, not `21=10` by `21=010`.
+ * A first child of a two-digit address gets two digits too.
+ */
+export function nextChildSignature(
+  parent: string | undefined,
+  existing: string[],
+): string {
+  const children = existing.filter((s) =>
+    parent
+      ? isSignatureChildOf(s, parent)
+      : signatureComponents(s).length === 1,
+  );
+  const lastParts = children.map((s) => signatureComponents(s).at(-1)!);
+  const numbers = lastParts.map(Number).filter((n) => Number.isFinite(n));
+  const next = numbers.length ? Math.max(...numbers) + 1 : 1;
+  const width = Math.max(
+    ...lastParts.map((p) => p.length),
+    parent ? signatureComponents(parent).at(-1)!.length : 1,
+    1,
+  );
+  const component = String(next).padStart(width, "0");
+  return parent ? `${parent}=${component}` : component;
+}
+
+/** The next free sibling of `signature`: the next child of its parent. */
+export function nextSiblingSignature(
+  signature: string,
+  existing: string[],
+): string {
+  return nextChildSignature(signatureParent(signature), existing);
+}

@@ -304,6 +304,40 @@ export function denoteLinkPlugin(client: Client): Extension {
           // A described one is drawn like any described link below -- marks,
           // not a widget, so the cursor can sit in it -- with its href fixed
           // up. Only a bare one, having no text of its own, needs the widget.
+          // `journal:YYYY-MM-DD` is that day's journal entry, made when
+          // followed. It reads as the date, or as its description, and is
+          // drawn faint: a day that may not have been written yet.
+          const journal = /^journal:(\d{4}-\d{2}-\d{2})$/.exec(target);
+          if (journal && !described) {
+            widgets.push(
+              Decoration.replace({
+                widget: new LinkWidget({
+                  from,
+                  text: journal[1],
+                  title: `Journal entry for ${journal[1]}`,
+                  href: "#",
+                  cssClass: "sb-wiki-link sb-denote-link sb-journal-link",
+                  callback: (e) => {
+                    if (e.altKey) {
+                      client.editorView.dispatch({
+                        selection: { anchor: from },
+                      });
+                      client.focus();
+                      return;
+                    }
+                    client.clientSystem.system
+                      .invokeFunction("index.denoteJournalOpenOrCreate", [
+                        journal[1],
+                      ])
+                      .catch((err) =>
+                        console.error("Could not open journal entry", err),
+                      );
+                  },
+                }),
+              }).range(from, to),
+            );
+            return;
+          }
           if (zotero && !described) {
             const entry = client.zotero.entryForItem(zotero[1]);
             const username = zoteroUsername;
@@ -353,16 +387,28 @@ export function denoteLinkPlugin(client: Client): Extension {
           widgets.push(
             Decoration.mark({
               tagName: "a",
-              class: "sb-link sb-org-external-link",
+              class: journal
+                ? "sb-link sb-denote-link sb-journal-link"
+                : "sb-link sb-org-external-link",
               attributes: {
                 href:
                   zotero && zoteroUsername
                     ? zoteroWebUrl(zoteroUsername, zotero[1])
-                    : target,
+                    : journal
+                      ? "#"
+                      : target,
                 title: zotero
                   ? (client.zotero.entryForItem(zotero[1])?.title ??
                     `Zotero item ${zotero[1]}`)
-                  : `Click to visit ${target}`,
+                  : journal
+                    ? `Journal entry for ${journal[1]}`
+                    : `Click to visit ${target}`,
+                ...(journal
+                  ? {
+                      "data-link-journal": journal[1],
+                      "data-link-target": target,
+                    }
+                  : {}),
               },
             }).range(textFrom, textTo),
           );
@@ -575,11 +621,18 @@ function linkClickHandler(client: Client): Extension {
       if (!anchor) {
         return false;
       }
-      const { linkHeader, linkDenote, linkTarget } = anchor.dataset;
+      const { linkHeader, linkDenote, linkTarget, linkJournal } =
+        anchor.dataset;
       if (!linkTarget) {
         return false;
       }
       event.preventDefault();
+      if (linkJournal) {
+        client.clientSystem.system
+          .invokeFunction("index.denoteJournalOpenOrCreate", [linkJournal])
+          .catch((err) => console.error("Could not open journal entry", err));
+        return true;
+      }
       const newTab = event.ctrlKey || event.metaKey;
       const identifier = linkDenote
         ? denoteTargetRegex.exec(linkTarget)?.[1]

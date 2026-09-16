@@ -331,3 +331,76 @@ test("A name that sluggifies to nothing leaves the identifier standing alone", (
     "20260905T080756.png",
   );
 });
+
+// --- Front matter rewriting and signature sequences ----------------------------
+
+import {
+  compareSignatures,
+  nextChildSignature,
+  nextSiblingSignature,
+  rewriteDenoteFrontMatter,
+  signatureParent,
+} from "./denote.ts";
+
+const orgNote = `#+title:      Old title
+#+date:       [2024-01-25 Thu 16:42]
+#+filetags:   :a:b:
+#+identifier: 20240125T164237
+
+Body stays.
+`;
+
+test("Rewriting Org front matter changes only the asked-for lines", () => {
+  const out = rewriteDenoteFrontMatter(orgNote, "org", {
+    title: "New title",
+    keywords: ["c"],
+    signature: "21=14",
+  });
+  expect(out).toBe(`#+title:      New title
+#+date:       [2024-01-25 Thu 16:42]
+#+filetags:   :c:
+#+identifier: 20240125T164237
+#+signature:  21=14
+
+Body stays.
+`);
+});
+
+test("An empty signature removes the line; a missing keywords line is added after the date", () => {
+  const withSig = rewriteDenoteFrontMatter(orgNote, "org", { signature: "1" });
+  expect(rewriteDenoteFrontMatter(withSig, "org", { signature: "" })).toBe(
+    orgNote,
+  );
+  const noKeywords = orgNote.replace("#+filetags:   :a:b:\n", "");
+  expect(rewriteDenoteFrontMatter(noKeywords, "org", { keywords: ["x"] })).toBe(
+    orgNote.replace(":a:b:", ":x:"),
+  );
+});
+
+test("YAML front matter is rewritten inside its fences", () => {
+  const md = `---\ntitle:      "T"\ndate:       "2024-01-25"\ntags:       ["a"]\nidentifier: "20240125T164237"\n---\n\nBody\n`;
+  expect(
+    rewriteDenoteFrontMatter(md, "markdown-yaml", {
+      keywords: ["b", "c"],
+      signature: "3",
+    }),
+  ).toBe(
+    `---\ntitle:      "T"\ndate:       "2024-01-25"\ntags:       ["b", "c"]\nidentifier: "20240125T164237"\nsignature:  "3"\n---\n\nBody\n`,
+  );
+});
+
+test("Signatures order as sequences and know their parents", () => {
+  expect(
+    ["21=14", "21", "21=2", "3", "21=14=1"].sort(compareSignatures),
+  ).toEqual(["3", "21", "21=2", "21=14", "21=14=1"]);
+  expect(signatureParent("21=14=1")).toBe("21=14");
+  expect(signatureParent("21")).toBeUndefined();
+});
+
+test("The next child keeps its siblings' width", () => {
+  expect(nextChildSignature("21", ["21=01", "21=09", "21=14=1"])).toBe("21=10");
+  expect(nextChildSignature("21", [])).toBe("21=01");
+  expect(nextChildSignature("1", ["1=1", "1=2"])).toBe("1=3");
+  expect(nextChildSignature(undefined, ["21", "40"])).toBe("41");
+  expect(nextSiblingSignature("21=14", ["21=14", "21=15"])).toBe("21=16");
+});

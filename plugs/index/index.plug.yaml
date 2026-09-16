@@ -205,6 +205,94 @@ functions:
     path: ./denote.ts:denoteJournalNextCommand
     command:
       name: "Denote: Journal Next"
+  # Signatures as sequences (denote-sequence), and renaming in place
+  # (denote-rename-file, denote-keywords-add/remove).
+  denoteBrowseBySignature:
+    path: ./denote_sequence.ts:browseBySignatureCommand
+    command:
+      name: "Denote: Browse by Signature"
+  denoteSignatureParent:
+    path: ./denote_sequence.ts:signatureParentCommand
+    command:
+      name: "Denote: Signature Parent"
+  denoteSignatureChildren:
+    path: ./denote_sequence.ts:signatureChildrenCommand
+    command:
+      name: "Denote: Signature Children"
+  denoteSignatureSiblings:
+    path: ./denote_sequence.ts:signatureSiblingsCommand
+    command:
+      name: "Denote: Signature Siblings"
+  denoteSignatureNext:
+    path: ./denote_sequence.ts:signatureNextCommand
+    command:
+      name: "Denote: Signature Next"
+  denoteSignaturePrevious:
+    path: ./denote_sequence.ts:signaturePreviousCommand
+    command:
+      name: "Denote: Signature Previous"
+  denoteNewChildNote:
+    path: ./denote_sequence.ts:newChildNoteCommand
+    command:
+      name: "Denote: New Child Note"
+  denoteNewSiblingNote:
+    path: ./denote_sequence.ts:newSiblingNoteCommand
+    command:
+      name: "Denote: New Sibling Note"
+  denoteRenameNote:
+    path: ./denote_sequence.ts:renameNoteCommand
+    command:
+      name: "Denote: Rename"
+  denoteSetSignature:
+    path: ./denote_sequence.ts:setSignatureCommand
+    command:
+      name: "Denote: Set Signature"
+  denoteAddKeywords:
+    path: ./denote_sequence.ts:addKeywordsCommand
+    command:
+      name: "Denote: Add Keywords"
+  denoteRemoveKeywords:
+    path: ./denote_sequence.ts:removeKeywordsCommand
+    command:
+      name: "Denote: Remove Keywords"
+  # Generated pages under `denote/` (signatures, keywords, calendar, health)
+  # and the pickers of denote-find-link / denote-find-backlink.
+  denoteGenerateView:
+    path: ./denote_views.ts:generateView
+    events:
+      - editor:pageCreating
+  denoteSignaturesPage:
+    path: ./denote_views.ts:browseSignaturesPageCommand
+    command:
+      name: "Denote: Signatures Page"
+  denoteKeywordsPage:
+    path: ./denote_views.ts:browseKeywordsPageCommand
+    command:
+      name: "Denote: Keywords Page"
+  denoteJournalCalendar:
+    path: ./denote_views.ts:journalCalendarCommand
+    command:
+      name: "Denote: Journal Calendar"
+  denoteJournalOpenDate:
+    path: ./denote_views.ts:journalOpenDateCommand
+    command:
+      name: "Denote: Journal Open Date"
+  denoteLibraryHealth:
+    path: ./denote_views.ts:libraryHealthCommand
+    command:
+      name: "Denote: Library Health"
+  denoteFindLink:
+    path: ./denote_views.ts:findLinkCommand
+    command:
+      name: "Denote: Find Link"
+  denoteFindBacklink:
+    path: ./denote_views.ts:findBacklinkCommand
+    command:
+      name: "Denote: Find Backlink"
+  denoteRandomNote:
+    path: ./denote_views.ts:randomNoteCommand
+    command:
+      name: "Denote: Random Note"
 
   # Zotero -- see zotero.ts.
   zoteroInsertCitation:
