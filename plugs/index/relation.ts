@@ -65,6 +65,8 @@ export type RelationObject = ObjectValue<{
    * only on `at-mention` records that a signature's scope covers. */
   by?: string[];
   snippet?: string;
+  /** For a link on an Org page: the outline path above it, innermost last. */
+  heading?: string;
   pageLastModified: string;
 }>;
 

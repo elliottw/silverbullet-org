@@ -92,8 +92,15 @@ Two more are reached without the palette:
   Denote link addresses a note by identifier, and an identifier only exists
   once the file does, so the note is created first and linked afterwards.
 
-Backlinks are the stock **Linked Mentions** panel (`Navigate: Linked
-Mentions`), which lists notes by title with the context line.
+Backlinks are the **Linked Mentions** panel (`Navigate: Linked Mentions`,
+docked under the page; its × remembers), shown the way org-roam's backlink
+buffer shows them: the note's title, the outline path the link sits under
+(`Monday 20 August › Site visit`), and the whole paragraph around it, so a
+person's page reads as what was said about them without opening each day.
+Below the backlinks, **Unlinked mentions** lists the pages that say this
+note's title without linking it; `Denote: Link Mentions` picks one and
+makes the link. (Every paragraph and list item is indexed for this —
+`index.paragraph.all` is on in this fork.)
 
 ## First launch
 

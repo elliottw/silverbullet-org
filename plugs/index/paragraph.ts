@@ -30,7 +30,11 @@ export async function indexParagraphs(
   frontmatter: FrontMatter,
   tree: ParseTree,
 ) {
-  const shouldIndexAll = await system.getConfig("index.paragraph.all", false);
+  // Every paragraph, by default: unlinked mentions -- a note's title said on
+  // another page without a link -- are found by searching them, and a
+  // library of notes is mostly prose that names things. Set it false to
+  // index only tagged paragraphs, as upstream does.
+  const shouldIndexAll = await system.getConfig("index.paragraph.all", true);
 
   const objects: ParagraphObject[] = [];
 

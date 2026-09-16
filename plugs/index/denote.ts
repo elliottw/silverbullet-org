@@ -54,7 +54,7 @@ import { pathFromPageName } from "@silverbulletmd/silverbullet/lib/ref";
 import type { FrontMatter } from "./frontmatter.ts";
 import { batchRenameFiles } from "./refactor.ts";
 import type { RelationObject } from "./relation.ts";
-import { buildLineIndex, extractSnippet } from "./snippet.ts";
+import { buildLineIndex, extractSnippet, orgLinkContext } from "./snippet.ts";
 import { pickEntry } from "./zotero.ts";
 
 export type DenoteObject = ObjectValue<{
@@ -254,7 +254,9 @@ export async function indexDenote(
       toTag: toPage ? "page" : "denote-identifier",
       page: pageMeta.name,
       range: [link.from!, link.to!],
-      snippet: extractSnippet(pageMeta.name, lineIndex, link.from!),
+      ...(pageMeta.name.endsWith(".org")
+        ? orgLinkContext(lineIndex, link.from!)
+        : { snippet: extractSnippet(pageMeta.name, lineIndex, link.from!) }),
       pageLastModified: pageMeta.lastModified,
     };
     if (descriptionNode) {

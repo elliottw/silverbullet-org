@@ -218,11 +218,20 @@ view.define {
 -- priority: 10
 widgets = widgets or {}
 
+-- A mention as org-roam's backlink buffer shows one: the page, the outline
+-- path the link sits under, and the paragraph around it.
 local mentionTemplate = template.new [==[
-**[[${_.page}@${_.start}|${_.label}]]**:
+**[[${_.page}@${_.start}|${_.label}]]**${_.heading}
 ${_.snippet}
 
 ]==]
+
+local function crumb(heading)
+  if heading and heading != "" then
+    return " › " .. heading
+  end
+  return ""
+end
 
 -- What to call a page here: its display name where it has one, else its own
 -- name. A Denote library's file names are slugs of the title with the
@@ -264,6 +273,7 @@ function widgets.linkedMentionsMarkdown(pageName)
     select mentionTemplate({
       page = r.page,
       label = mentionLabel(r.page),
+      heading = crumb(r.heading),
       snippet = mentionSnippet(r.page, r.snippet),
       start = r.range[1],
     })
@@ -273,6 +283,132 @@ function widgets.linkedMentionsMarkdown(pageName)
   end
   return table.concat(linkedMentions)
 end
+
+-- Unlinked mentions, as org-roam's "unlinked references": paragraphs on
+-- other pages that say this note's title without linking to it. Only a
+-- title worth searching for -- four characters or more, and not a journal
+-- entry's date -- and only pages that do not already link here. The panel
+-- lists them; `Denote: Link Mentions` picks one and rewrites that page's
+-- first plain mention after the paragraph's start into a Denote link.
+local function titleOf(pageName)
+  local page = index.getObjectByRef(pageName, "page", pageName)
+  if page and page.displayName and page.displayName != "" then
+    return page.displayName
+  end
+  return nil
+end
+
+local function excerpt(text, needle, width)
+  local at = string.find(string.lower(text), needle, 1, true) or 1
+  local from = math.max(1, at - width)
+  local to = math.min(#text, at + #needle + width)
+  local out = string.sub(text, from, to)
+  if from > 1 then out = "…" .. out end
+  if to < #text then out = out .. "…" end
+  return out
+end
+
+function widgets.linkMention(page, pos, title, identifier)
+  local text = space.readPage(page)
+  local lower = string.lower(text)
+  local at = string.find(lower, string.lower(title), pos + 1, true)
+  if not at then
+    editor.flashNotification("Mention not found any more", "error")
+    return
+  end
+  local found = string.sub(text, at, at + #title - 1)
+  local link
+  if string.endsWith(page, ".org") then
+    link = "[[denote:" .. identifier .. "][" .. found .. "]]"
+  else
+    link = "[[denote:" .. identifier .. "|" .. found .. "]]"
+  end
+  space.writePage(page, string.sub(text, 1, at - 1) .. link .. string.sub(text, at + #title))
+  editor.flashNotification("Linked on " .. (titleOf(page) or page))
+end
+
+-- The unlinked mentions of a note, each with the paragraph it sits in.
+function widgets.unlinkedMentions(pageName)
+  pageName = pageName or editor.getCurrentPage()
+  local title = titleOf(pageName)
+  local notes = query[[from d = index.tag "denote" where d.page == pageName limit 1]]
+  local identifier = notes[1] and notes[1].identifier
+  if not title or #title < 4 or not identifier
+     or string.match(title, "^%a+ %d+ %a+ %d%d%d%d") then
+    return {}, title, identifier
+  end
+  local needle = string.lower(title)
+  local linking = {}
+  for _, r in ipairs(query[[
+    from r = index.relations() where r.to == pageName select r.page
+  ]]) do linking[r] = true end
+  -- Prose is in paragraph objects; a list's lines are item objects.
+  local rows = query[[
+    from p = index.tag "paragraph"
+    where p.page != pageName and not linking[p.page]
+      and string.find(string.lower(p.text), needle, 1, true)
+    select { page = p.page, pos = p.pos, text = p.text }
+  ]]
+  for _, i in ipairs(query[[
+    from i = index.tag "item"
+    where i.page != pageName and not linking[i.page]
+      and string.find(string.lower(i.text), needle, 1, true)
+    select { page = i.page, pos = i.pos, text = i.text }
+  ]]) do table.insert(rows, i) end
+  table.sort(rows, function(a, b)
+    if a.page == b.page then return a.pos < b.pos end
+    return a.page < b.page
+  end)
+  while #rows > 40 do table.remove(rows) end
+  return rows, title, identifier
+end
+
+function widgets.unlinkedMentionsMarkdown(pageName)
+  local rows, title = widgets.unlinkedMentions(pageName)
+  if #rows == 0 then
+    return ""
+  end
+  local needle = string.lower(title)
+  local out = {}
+  for _, p in ipairs(rows) do
+    table.insert(out,
+      "**[[" .. p.page .. "@" .. p.pos .. "|" .. mentionLabel(p.page) .. "]]**\n" ..
+      mentionSnippet(p.page, excerpt(p.text, needle, 120)) .. "\n\n")
+  end
+  return table.concat(out)
+end
+
+-- `Denote: Link Mentions`: pick an unlinked mention of the open note and
+-- turn it into a link, the way org-roam's unlinked-references buffer offers
+-- to. Stays open for the next one until Escape.
+command.define {
+  name = "Denote: Link Mentions",
+  run = function()
+    local pageName = editor.getCurrentPage()
+    while true do
+      local rows, title, identifier = widgets.unlinkedMentions(pageName)
+      if #rows == 0 then
+        editor.flashNotification("No unlinked mentions of " .. tostring(title))
+        return
+      end
+      local options = {}
+      for _, p in ipairs(rows) do
+        table.insert(options, {
+          name = mentionLabel(p.page),
+          description = excerpt(p.text, string.lower(title), 60),
+          page = p.page,
+          pos = p.pos,
+        })
+      end
+      local choice = editor.filterBox("Link mention", options,
+        #rows .. " pages say “" .. title .. "” without linking it; Enter links one, Escape stops")
+      if not choice then
+        return
+      end
+      widgets.linkMention(choice.page, choice.pos, title, identifier)
+    end
+  end,
+}
 
 function widgets.linkedMentions(pageName)
   local md = widgets.linkedMentionsMarkdown(pageName)
@@ -294,7 +430,12 @@ view.define {
   refreshOn = { "editor:pageLoaded", "mq:emptyQueue:indexQueue" },
   refreshOnOpen = true,
   content = function()
-    return widgets.linkedMentionsMarkdown()
+    local linked = widgets.linkedMentionsMarkdown()
+    local unlinked = widgets.unlinkedMentionsMarkdown()
+    if unlinked == "" then
+      return linked
+    end
+    return linked .. "\n## Unlinked mentions\n" .. unlinked
   end,
 }
 ```

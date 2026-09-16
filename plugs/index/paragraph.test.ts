@@ -98,3 +98,37 @@ test("a `range` attribute does not overwrite a paragraph's source offsets", asyn
   expect(p.range.every((n: unknown) => typeof n === "number")).toBe(true);
   expect(typeof p.pos).toBe("number");
 });
+
+// --- Org link context -----------------------------------------------------------
+
+import { buildLineIndex, orgLinkContext } from "./snippet.ts";
+
+test("an Org link's context is its outline path and its paragraph", () => {
+  const text = [
+    "#+title: Day",
+    "",
+    "* Morning",
+    "Coffee.",
+    "",
+    "* Site visit",
+    "** With the clinic",
+    "Walked with [[denote:20250101T100000][Cherise]] and",
+    "talked about vending.",
+    "She wants a map.",
+    "",
+    "Later.",
+  ].join("\n");
+  const at = text.indexOf("[[denote:");
+  const ctx = orgLinkContext(buildLineIndex(text), at);
+  expect(ctx.heading).toBe("Site visit › With the clinic");
+  expect(ctx.snippet).toBe(
+    "Walked with [[denote:20250101T100000][Cherise]] and\ntalked about vending.\nShe wants a map.",
+  );
+  // A link on a heading line: the path is the headings above it.
+  const onHeading = orgLinkContext(
+    buildLineIndex("* Top\n** [[denote:1][Sub]]\nBody.\n"),
+    8,
+  );
+  expect(onHeading.heading).toBe("Top");
+  expect(onHeading.snippet).toBe("[[denote:1][Sub]]\nBody.");
+});

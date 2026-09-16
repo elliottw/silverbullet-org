@@ -75,7 +75,8 @@ config.define("index", {
       properties = {
         all = {
           type = "boolean",
-          default = false,
+          -- On in this fork: unlinked mentions are found by searching them.
+          default = true,
           description = "Index paragraphs without a hashtag",
           ui = { category = "Indexing", label = "Index all paragraphs", priority = 3 },
         },

@@ -126,3 +126,72 @@ function getIndentationLevel(line: string): number {
   const match = line.match(/^( *)/);
   return match ? match[1].length : 0;
 }
+
+/**
+ * The context an Org link sits in, the way org-roam's backlink buffer shows
+ * it: the outline path above it (`Wednesday 20 August › Site visit`) and
+ * the whole paragraph around it -- from the blank line or heading before to
+ * the one after -- rather than the single line. A reader of the backlinks
+ * then knows what was said without opening every page.
+ */
+export function orgLinkContext(
+  lineIndex: LineIndex,
+  index: number,
+  maxLines = 8,
+): { heading?: string; snippet: string } {
+  const { lines, lineOffsets } = lineIndex;
+  let lo = 0;
+  let hi = lines.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (lineOffsets[mid] <= index) lo = mid;
+    else hi = mid - 1;
+  }
+  const at = lo;
+  const isHeading = (line: string) => /^\*+\s/.test(line);
+  const isBlank = (line: string) => line.trim() === "";
+  const level = (line: string) => /^(\*+)\s/.exec(line)?.[1].length ?? 0;
+
+  // The outline path: the nearest heading of each level, innermost last.
+  const crumbs: string[] = [];
+  let want = Number.POSITIVE_INFINITY;
+  for (let i = isHeading(lines[at]) ? at - 1 : at; i >= 0; i--) {
+    const l = level(lines[i]);
+    if (l && l < want) {
+      crumbs.unshift(lines[i].replace(/^\*+\s+/, "").trim());
+      want = l;
+      if (l === 1) break;
+    }
+  }
+
+  // The paragraph: contiguous non-blank lines around the link, headings
+  // excluded, capped at maxLines with the link's line kept in view.
+  let start = at;
+  while (
+    start > 0 &&
+    !isBlank(lines[start - 1]) &&
+    !isHeading(lines[start - 1])
+  )
+    start--;
+  let end = at;
+  while (
+    end + 1 < lines.length &&
+    !isBlank(lines[end + 1]) &&
+    !isHeading(lines[end + 1])
+  )
+    end++;
+  if (end - start + 1 > maxLines) {
+    const before = Math.min(at - start, Math.floor(maxLines / 2));
+    start = at - before;
+    end = Math.min(end, start + maxLines - 1);
+  }
+  const snippet = lines
+    .slice(start, end + 1)
+    .map((l) => (isHeading(l) ? l.replace(/^\*+\s+/, "") : l))
+    .join("\n")
+    .trim();
+  return {
+    ...(crumbs.length ? { heading: crumbs.join(" › ") } : {}),
+    snippet: snippet || lines[at].trim(),
+  };
+}
