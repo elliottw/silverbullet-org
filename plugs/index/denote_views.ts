@@ -19,6 +19,7 @@
 import {
   isDenoteNoteFile,
   journalDateStamp,
+  parseDenoteName,
   signatureComponents,
 } from "@silverbulletmd/silverbullet/lib/denote";
 import {
@@ -133,10 +134,11 @@ async function renderKeywords(keyword?: string): Promise<string> {
   const rows = [...counts].sort(
     (a, b) => b[1] - a[1] || a[0].localeCompare(b[0]),
   );
+  const noteCount = notes.filter((n) => isDenoteNoteFile(n.name)).length;
   return [
     "#+title: Keywords",
     "",
-    `${rows.length} keywords across ${notes.length} notes.`,
+    `${rows.length} keywords across ${noteCount} notes.`,
     "",
     ...rows.map(([k, c]) => `- [[denote/keywords/${k}][${k}]] ${c}`),
     "",
@@ -270,13 +272,25 @@ async function renderHealth(): Promise<string> {
   }
 
   // Names out of step: only notes, only their front matter, read one by one.
+  // Keywords in a different order are not out of step -- Denote sorts them
+  // on rename, the file name may predate that, and a save will settle it.
   const mismatched: { name: string; wanted: string }[] = [];
+  const sortedKeywords = (name: string) => {
+    const parsed = parseDenoteName(name);
+    return parsed ? { ...parsed, keywords: [...parsed.keywords].sort() } : name;
+  };
   for (const n of notes) {
     if (!isDenoteNoteFile(n.name)) continue;
     try {
       const text = await space.readPage(n.name);
       const wanted = denoteNameFromFrontMatter(n.name, text);
-      if (wanted) mismatched.push({ name: n.name, wanted });
+      if (
+        wanted &&
+        JSON.stringify(sortedKeywords(wanted)) !==
+          JSON.stringify(sortedKeywords(n.name))
+      ) {
+        mismatched.push({ name: n.name, wanted });
+      }
     } catch {
       // Unreadable here; not this page's problem.
     }
@@ -284,10 +298,11 @@ async function renderHealth(): Promise<string> {
 
   const pageLink = (name: string) =>
     `[[${name.replace(/\.org$/, "")}][${name}]]`;
+  const noteCount = notes.filter((n) => isDenoteNoteFile(n.name)).length;
   return [
     "#+title: Library health",
     "",
-    `${notes.length} notes. Generated now; reopen to refresh.`,
+    `${noteCount} notes. Generated now; reopen to refresh.`,
     "",
     `* ${duplicates.length} identifiers shared by more than one file`,
     ...(duplicates.length ? [] : ["None."]),
