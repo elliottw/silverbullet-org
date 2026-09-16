@@ -3,9 +3,9 @@
  *
  * Reads the manifest and writes the whole library-to-be into a staging
  * directory: every note as a Denote Org file, every link rewritten, every
- * attachment copied under its Denote name, every verbatim folder copied as
- * it is, and a category index page for each Johnny Decimal category. The
- * real library is not touched.
+ * attachment copied under its Denote name, and a hub note for each Johnny
+ * Decimal category. Code folders are staged separately for ~/code. The real
+ * library is not touched.
  *
  *     npx tsx tools/obsidian-migration/convert.ts [--only <substring>]
  */
@@ -29,6 +29,7 @@ import {
   formatDenoteName,
   journalTitle,
   parseDenoteName,
+  sluggify,
 } from "../../plug-api/lib/denote.ts";
 import { config } from "./config.ts";
 import type { Entry, Manifest } from "./manifest.ts";
@@ -62,18 +63,11 @@ const inZotero = (source: string) => zoteroMap[source];
 const byTarget = new Map<string, Entry>();
 for (const e of manifest.entries) if (e.target) byTarget.set(e.target, e);
 
-/** Library path → the vault path it came from, files inside verbatim folders included. */
+/** Library path → the vault path it came from. */
 const sourceByTarget = new Map<string, string>();
 for (const e of manifest.entries) {
   if (!e.target) continue;
   sourceByTarget.set(e.target, e.source);
-  if (e.kind === "verbatim") {
-    const abs = join(config.vault, e.source);
-    if (!existsSync(abs)) continue;
-    for (const inner of walkFiles(abs)) {
-      sourceByTarget.set(`${e.target}/${inner}`, `${e.source}/${inner}`);
-    }
-  }
 }
 
 function* walkFiles(dir: string, rel = ""): Generator<string> {
@@ -199,11 +193,12 @@ const stats = {
   notes: 0,
   journal: 0,
   attachments: 0,
-  verbatim: 0,
+  code: 0,
   indexes: 0,
   linksToNotes: 0,
   linksToFiles: 0,
   linksToZotero: 0,
+  linksToCode: 0,
   leftToZotero: 0,
   emptySkipped: 0,
   dedupDropped: 0,
@@ -278,6 +273,12 @@ function orgLink(
       : `[[zotero:${zotero.key}]]`;
   }
   stats.linksToFiles++;
+  // Code lives under ~/code, outside the library: an absolute link, which
+  // Emacs follows and SilverBullet shows for what it is.
+  if (libPath.startsWith("~/")) {
+    stats.linksToCode++;
+    return `[[file:${libPath}][${alias ?? libPath.split("/").pop()}]]`;
+  }
   const rel = relative(dirname(fromTarget), libPath).split("\\").join("/");
   if (embed && isImage(libPath)) return `[[file:${rel}]]`; // inline image
   return `[[file:${rel}][${alias ?? libPath.split("/").pop()}]]`;
@@ -609,121 +610,155 @@ function attachOrphanScans() {
 }
 
 // ---------------------------------------------------------------------------
-// Category index pages
+// Hub notes
 // ---------------------------------------------------------------------------
 
 /**
- * One index page per Johnny Decimal category, holding a `denote-links` block
- * for the notes directly in it and one per sub-folder -- so the walk is Home
- * → category → note, and no folder below a category gets a file it did not
- * ask for. The blocks are pre-filled so the page is useful before anything
- * refreshes it.
+ * One hub note per vault category -- the note the category's number
+ * resolves to, addressed `NN=00`, so the walk is Home → hub → note. It lists
+ * the category's notes by the folder they sat in, since the flat library no
+ * longer says: a `denote-links` block per signature (`==21=14`), pre-filled
+ * and refreshable in Emacs and SilverBullet alike; a plain list for a folder
+ * that had no number (a refresh would empty a block that matches nothing);
+ * and a catch-all block for the whole category last, so nothing is lost when
+ * the pre-filled lists go stale.
  *
- * A note already titled like the category (`21.00 iteam`) *is* the index:
- * the blocks are appended to it rather than a second page made.
+ * A note the vault already had for the category (`21.00 iteam`, or `iteam`
+ * in `21 iteam`) *is* the hub: the lists are appended to it. A category
+ * without a number (`type`, `states`) gets a hub without a signature.
  */
-function writeCategoryIndexes() {
-  const notes = manifest.entries.filter((e) => e.kind === "note" && e.target);
+function writeHubs() {
+  const notes = manifest.entries.filter(
+    (e) => e.kind === "note" && e.target && e.category,
+  );
   const categories = new Map<string, Entry[]>();
   for (const e of notes) {
-    const top = e.target!.split("/")[0];
-    if (/^\d{2} /.test(top))
-      categories.set(top, [...(categories.get(top) ?? []), e]);
+    categories.set(e.category!, [...(categories.get(e.category!) ?? []), e]);
   }
-  for (const [cat, inCat] of categories) {
-    const [, num, name] = /^(\d{2}) (.+)$/.exec(cat)!;
-    const subs = new Map<string, Entry[]>();
+  for (const [cat, inCat] of [...categories].sort()) {
+    const numbered = /^(\d{2}) (.+)$/.exec(cat);
+    const num = numbered?.[1];
+    const name = numbered?.[2] ?? cat;
+    const sections = new Map<string, Entry[]>();
     const direct: Entry[] = [];
     for (const e of inCat) {
-      const rest = e.target!.slice(cat.length + 1).split("/");
-      if (rest.length === 1) direct.push(e);
-      else subs.set(rest[0], [...(subs.get(rest[0]) ?? []), e]);
+      if (e.section) {
+        sections.set(e.section, [...(sections.get(e.section) ?? []), e]);
+      } else {
+        direct.push(e);
+      }
     }
-    const block = (heading: string, regexp: string, list: Entry[]) =>
-      [
-        `* ${heading}`,
-        `#+BEGIN: denote-links :regexp ${JSON.stringify(regexp)} :not-regexp nil :excluded-dirs-regexp nil :sort-by-component title :reverse-sort nil :id-only nil :include-date nil`,
-        ...list
-          .map(linkTarget)
-          .sort((a, b) => a.title.localeCompare(b.title))
-          .map((l) => `- [[denote:${l.identifier}][${l.title}]]`),
-        "#+END:",
-        "",
-      ].join("\n");
-    const sections = [
-      ...(direct.length
-        ? [block(name, `^${escapeRe(cat)}/[^/]+\\.org$`, direct)]
-        : []),
-      ...[...subs]
-        .sort()
-        .map(([sub, list]) =>
-          block(sub, `^${escapeRe(`${cat}/${sub}`)}/`, list),
-        ),
-    ].join("\n");
-
+    // The hub itself: the vault's `21.00 iteam`, or `iteam` in `21 iteam`
+    // or its `00 meta` (other notes in `00 meta` are the category's meta
+    // notes and carry `21=00` too). It is not listed under itself.
     const isIndexFile = (e: Entry) =>
-      new RegExp(`(^|/)${num}\\.00 `).test(e.source);
+      num !== undefined && new RegExp(`(^|/)${num}\\.00 `).test(e.source);
     const existing = inCat
       .filter(
         (e) =>
-          (titleOf(e.title) === titleOf(name) || isIndexFile(e)) &&
-          e.target!.split("/").length <= 3,
+          num !== undefined &&
+          e.signature === `${num}=00` &&
+          (isIndexFile(e) ||
+            sluggify("title", e.title) === sluggify("title", name)),
       )
-      // An explicit `21.00 iteam` note is the index if there is one; failing
-      // that, the one nearest the category root.
       .sort(
         (a, b) =>
           Number(isIndexFile(b)) - Number(isIndexFile(a)) ||
-          a.target!.length - b.target!.length,
+          a.source.length - b.source.length,
       )[0];
+    const isHub = (e: Entry) => e === existing;
+    const list = (entries: Entry[]) =>
+      entries
+        .filter((e) => !isHub(e))
+        .map(linkTarget)
+        .sort((a, b) => a.title.localeCompare(b.title))
+        .map((l) => `- [[denote:${l.identifier}][${l.title}]]`);
+    const block = (
+      heading: string,
+      regexp: string | undefined,
+      entries: Entry[],
+      sortBy = "title",
+    ) =>
+      [
+        `* ${heading}`,
+        ...(regexp
+          ? [
+              `#+BEGIN: denote-links :regexp ${JSON.stringify(regexp)} :not-regexp nil :excluded-dirs-regexp nil :sort-by-component ${sortBy} :reverse-sort nil :id-only nil :include-date nil`,
+              ...list(entries),
+              "#+END:",
+            ]
+          : list(entries)),
+        "",
+      ].join("\n");
+    const body = [
+      ...(list(direct).length
+        ? [block(name, num ? `==${num}--` : undefined, direct)]
+        : []),
+      ...[...sections]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .filter(([, entries]) => list(entries).length)
+        .map(([section, entries]) => {
+          const sub = num && /^(?:\d{2}\.)?(\d{2}) /.exec(section);
+          return block(
+            section,
+            sub ? `==${num}=${sub[1]}--` : undefined,
+            entries,
+          );
+        }),
+      ...(num
+        ? [block(`Everything in ${num}`, `==${num}[=-]`, inCat, "signature")]
+        : []),
+    ].join("\n");
+
     const existingPath = existing
       ? (redirect.get(existing.target!) ?? existing.target!)
       : undefined;
+    let identifier: string;
     if (existing && existingPath) {
       const current = redirect.has(existing.target!)
         ? stagedLibraryNote(existingPath)
         : readFileSync(join(staging, existingPath), "utf8");
-      write(existingPath, `${current.trimEnd()}\n\n${sections}`);
+      write(existingPath, `${current.trimEnd()}\n\n${body}`);
+      identifier =
+        parseDenoteName(existingPath)?.identifier ?? existing.identifier;
     } else {
-      const identifier = indexIdentifier(num);
-      const target = `${cat}/${formatDenoteName({ identifier, signature: `${num}=00`, title: name, keywords: [], extension: ".org" })}`;
+      identifier = hubIdentifier(num);
+      const signature = num ? `${num}=00` : undefined;
+      const target = formatDenoteName({
+        identifier,
+        signature,
+        title: name,
+        keywords: [],
+        extension: ".org",
+      });
       const head = formatDenoteFrontMatter(
         {
           title: name,
-          date: denoteDate(new Date(0), "org"),
+          date: denoteDate(new Date(), "org"),
           keywords: [],
           hasKeywords: false,
           identifier,
-          signature: `${num}=00`,
+          signature,
         },
         "org",
       );
-      write(target, `${head}\n${sections}`);
+      write(target, `${head}\n${body}`);
     }
     stats.indexes++;
-    homeLinks.push({
-      num,
-      name,
-      identifier: existingPath
-        ? (parseDenoteName(existingPath)?.identifier ?? existing!.identifier)
-        : lastIndexIdentifier,
-    });
+    homeLinks.push({ num, name, identifier });
   }
-  // The home page exists in the library already; this is appended to it at
-  // cutover. A static list rather than a dblock: a `00 meta/` note carries
-  // `==21=00--` as much as the index does, so no regexp picks out exactly
-  // the indexes, and categories change rarely enough to edit by hand.
-  const addendum = [
-    "* Categories",
-    ...homeLinks
-      .sort((a, b) => a.num.localeCompare(b.num))
-      .map((h) => `- [[denote:${h.identifier}][${h.num} ${h.name}]]`),
-    "",
-  ].join("\n");
-  writeFileSync(join(config.out, "home-addendum.org"), addendum);
-  // The staged library gets the merged home page too, so it can be browsed
-  // -- and so the merge is rehearsed rather than done for the first time at
-  // cutover. The library's own home is read, never written.
+  writeHome();
+}
+
+/**
+ * Home already lists the categories by number, by hand -- `21. iteam`, some
+ * with a link to a favourite note after an arrow. Each such line gets its
+ * hub linked in place: `21. [[denote:ID][iteam]]`, the arrow and what
+ * follows kept. Hubs Home does not mention go in a section at the end. The
+ * library's own Home is read, never written; the staged copy is what the
+ * cutover installs, and `home-addendum.org` shows the difference.
+ */
+function writeHome() {
   const homeName = config.linkAliases["✱ Home"];
   let home = "";
   try {
@@ -731,44 +766,59 @@ function writeCategoryIndexes() {
   } catch {
     home = `#+title:      Home\n#+identifier: 00000000T000000\n`;
   }
-  write(homeName, `${home}\n\n${addendum}`);
-  writeSpaceIgnore();
+  const byNum = new Map(homeLinks.filter((h) => h.num).map((h) => [h.num!, h]));
+  const placed = new Set<string>();
+  const merged = home
+    .split("\n")
+    .map((line) => {
+      const m = /^(\s*)(\d{2})\.\s*(.*)$/.exec(line);
+      if (!m) return line;
+      const hub = byNum.get(m[2]);
+      if (!hub || /\[\[denote:/.test(m[3].split(" -> ")[0])) return line;
+      placed.add(m[2]);
+      const [text, ...rest] = m[3].split(" -> ");
+      const label = text.trim() || hub.name;
+      return `${m[1]}${m[2]}. [[denote:${hub.identifier}][${label}]]${
+        rest.length ? ` -> ${rest.join(" -> ")}` : ""
+      }`;
+    })
+    .join("\n");
+  const missing = homeLinks
+    .filter((h) => !h.num || !placed.has(h.num))
+    .sort((a, b) => (a.num ?? "~").localeCompare(b.num ?? "~"));
+  const addendum = missing.length
+    ? [
+        "* More hubs",
+        ...missing.map(
+          (h) =>
+            `- [[denote:${h.identifier}][${h.num ? `${h.num} ${h.name}` : h.name}]]`,
+        ),
+        "",
+      ].join("\n")
+    : "";
+  writeFileSync(
+    join(config.out, "home-addendum.org"),
+    `${placed.size} category lines linked in place.\n\n${addendum}`,
+  );
+  write(homeName, `${merged}\n${addendum ? `\n${addendum}` : ""}`);
 }
 
-/**
- * What SilverBullet should not see. The verbatim folders hold thousands of
- * files no note links to -- a repository's objects, a saved page's images --
- * and indexing them is pure cost; `SB_SPACE_IGNORE` takes gitignore syntax.
- * The library's own ignore list (Emacs backups, sync conflicts) stays.
- */
-function writeSpaceIgnore() {
-  const lines = [
-    "# Generated by the Obsidian migration: folders copied verbatim.",
-    "# Append to SB_SPACE_IGNORE; also worth mirroring in .stignore for .git.",
-    ...manifest.entries
-      .filter((e) => e.kind === "verbatim" && e.target)
-      .map((e) => `/${e.target!.replace(/[\[\]*?]/g, "\\$&")}/`),
-    "*.nosync/",
-    ".git/",
-    "node_modules/",
-  ];
-  writeFileSync(join(config.out, "space-ignore.txt"), `${lines.join("\n")}\n`);
-}
-
-const homeLinks: { num: string; name: string; identifier: string }[] = [];
+const homeLinks: { num?: string; name: string; identifier: string }[] = [];
 
 /**
- * A synthesized index page's identifier: `00000000T0000NN` for category NN,
- * and `00000000T00NN0k` when the vault has a second category with that
- * number (it has two 81s).
+ * A synthesized hub's identifier: `00000000T0000NN` for category NN,
+ * `00000000T00NN0k` when the vault has a second category with that number
+ * (it has two 81s), and `00000000T0090kk` for a category with no number.
  */
-const indexIdentifiers = new Set<string>();
-let lastIndexIdentifier = "";
-function indexIdentifier(num: string): string {
-  let id = `00000000T0000${num}`;
-  for (let k = 1; indexIdentifiers.has(id); k++) id = `00000000T00${num}0${k}`;
-  indexIdentifiers.add(id);
-  lastIndexIdentifier = id;
+const hubIdentifiers = new Set<string>();
+function hubIdentifier(num: string | undefined): string {
+  let id = num ? `00000000T0000${num}` : "00000000T009001";
+  for (let k = 1; hubIdentifiers.has(id); k++) {
+    id = num
+      ? `00000000T00${num}0${k}`
+      : `00000000T0090${String(k + 1).padStart(2, "0")}`;
+  }
+  hubIdentifiers.add(id);
   return id;
 }
 
@@ -793,7 +843,10 @@ const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 function main() {
   planDedup();
-  if (!only) rmSync(staging, { recursive: true, force: true });
+  if (!only) {
+    rmSync(staging, { recursive: true, force: true });
+    rmSync(join(config.out, "staging-code"), { recursive: true, force: true });
+  }
   mkdirSync(staging, { recursive: true });
   const started = Date.now();
   let n = 0;
@@ -824,18 +877,18 @@ function main() {
         stats.attachments++;
         break;
       }
-      case "verbatim": {
-        const dest = join(staging, e.target);
+      case "code": {
+        // Not part of the library: staged beside it, installed under ~/code
+        // at cutover. Its documents that went to Zotero are not copied.
+        const dest = join(config.out, "staging-code", e.target);
         cpSync(abs, dest, { recursive: true });
-        // Its documents are in Zotero; what stays is what is not -- images,
-        // code, the folder itself.
         for (const inner of walkFiles(abs)) {
           if (inZotero(`${e.source}/${inner}`)) {
             rmSync(join(dest, inner), { force: true });
             stats.leftToZotero++;
           }
         }
-        stats.verbatim++;
+        stats.code++;
         break;
       }
     }
@@ -843,7 +896,7 @@ function main() {
   }
   if (!only) {
     attachOrphanScans();
-    writeCategoryIndexes();
+    writeHubs();
   }
   const secs = ((Date.now() - started) / 1000).toFixed(0);
   const summary = [
@@ -856,11 +909,12 @@ function main() {
     `| notes converted | ${stats.notes} |`,
     `| journal entries | ${stats.journal} |`,
     `| attachments copied | ${stats.attachments} |`,
-    `| verbatim folders | ${stats.verbatim} |`,
-    `| category index pages | ${stats.indexes} |`,
+    `| code folders staged for ~/code | ${stats.code} |`,
+    `| hub notes | ${stats.indexes} |`,
     `| links → notes (\`denote:\`) | ${stats.linksToNotes} |`,
     `| links → files (\`file:\`) | ${stats.linksToFiles} |`,
     `| links → Zotero (\`zotero:\`) | ${stats.linksToZotero} |`,
+    `| links → code under ~/code | ${stats.linksToCode} |`,
     `| documents left to Zotero, not copied | ${stats.leftToZotero} |`,
     `| empty files skipped | ${stats.emptySkipped} |`,
     `| notes the library already had (dropped) | ${stats.dedupDropped} |`,

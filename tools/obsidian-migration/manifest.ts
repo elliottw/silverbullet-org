@@ -19,6 +19,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join, relative, sep } from "node:path";
+import { homedir } from "node:os";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import {
@@ -38,8 +39,11 @@ import { config } from "./config.ts";
 export type Entry = {
   /** Path inside the vault. For a journal split, the day page it came from. */
   source: string;
-  kind: "note" | "attachment" | "verbatim" | "journal" | "journal-attachment";
-  /** Path inside the library it becomes, or null when it is dropped. */
+  kind: "note" | "attachment" | "code" | "journal" | "journal-attachment";
+  /**
+   * Path inside the library it becomes, or null when it is dropped. For
+   * code, the path under `config.folders.codeDir` instead.
+   */
   target: string | null;
   identifier: string;
   /** Where the identifier's date came from — a later phase may want to know. */
@@ -47,6 +51,13 @@ export type Entry = {
   title: string;
   signature?: string;
   keywords: string[];
+  /**
+   * The vault folders the note sat in, for the hub notes: its category
+   * (`26 upmc community paramedic`, or a non-JD top folder like `type`) and
+   * the folder under that, if any.
+   */
+  category?: string;
+  section?: string;
   /** For a journal split: the section's date and its source line range. */
   journal?: { date: string; lines: [number, number] };
   /**
@@ -78,8 +89,8 @@ export type Manifest = {
 // Walking the vault
 // ---------------------------------------------------------------------------
 
-// `.nosync` folders are code, kept verbatim; `reMarkable/` is 3 GB of tablet
-// exports and is left where it is until someone asks for it.
+// `reMarkable/` is 3 GB of tablet exports and is left where it is until
+// someone asks for it.
 const skipDirs = [/^\.obsidian/, /^\.trash$/, /^\.claude$/, /^reMarkable$/];
 const skipFiles = [
   /^\.DS_Store$/,
@@ -89,84 +100,34 @@ const skipFiles = [
   /^cleanup_denote_leftovers\.sh$/,
 ];
 
-/** Whether a directory holds no notes at any depth — a folder *of files*. */
-function isAssetBundle(dir: string): boolean {
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    if (entry.isDirectory()) {
-      if (!isAssetBundle(join(dir, entry.name))) return false;
-    } else if (/\.md$/i.test(entry.name)) {
-      return false;
-    }
-  }
-  return true;
-}
-
-const projectMarkers = [
-  ".git",
-  "package.json",
-  "Cargo.toml",
-  "pyproject.toml",
-  "requirements.txt",
-  "go.mod",
-  ".venv",
-];
-const sourceFile = /\.(py|js|ts|jsx|tsx|rs|swift|sh|go|rb|c|h|cpp|scad|ino)$/i;
-
-/** A page saved with SingleFile or a browser: `name(4_7_2021_12_43_32_pm)`, `name_files`. */
-const webClip = /\(\d{1,2}_\d{1,2}_\d{4}_[\d_]+[ap]m\)$|_files$/i;
+const codeFolders = new Map(Object.entries(config.folders.code));
+const dropFolders = new Set(config.folders.drop);
 
 /**
- * Whether a folder is copied byte-for-byte: nothing renamed, nothing
- * converted. That is a folder that is really a *thing* rather than a place
- * for notes and their files -- a repository, a code project, a saved web
- * page with its images, a dump of a few dozen photos or certificates. A
- * `README.md` inside one is part of the thing, not a note.
- *
- * A numbered folder is a JD place, never verbatim, whatever it holds: `05
- * landslide` with four PDFs in it is four attachments, Denote-named where
- * they are. So is a JD category that happens to be a repository (the
- * Pittsburgh book is); only a project *inside* the tree is verbatim.
+ * Yields every file, and every code folder as one unit. There are no other
+ * special folders: a saved web page's images, a project's photos, a dump of
+ * certificates are files like any other, and the flat library takes them
+ * one by one. What is code goes to ~/code; what is listed to drop is
+ * dropped.
  */
-function isVerbatim(abs: string, name: string, isNumbered: boolean): boolean {
-  if (/\.nosync$/.test(name) || /\.icon$/.test(name)) return true;
-  // A JD place, or an `assets/` folder that dissolves into one.
-  if (isNumbered || name === "assets") return false;
-  const names = readdirSync(abs);
-  if (names.some((n) => projectMarkers.includes(n))) return true;
-  if (names.filter((n) => sourceFile.test(n)).length >= 3) return true;
-  if (webClip.test(name)) return true;
-  if (
-    names.some((n) => /\.html?$/i.test(n)) &&
-    names.some((n) => /\.(png|jpe?g|gif|webp|svg|css)$/i.test(n))
-  ) {
-    return true;
-  }
-  // A dump: no notes at any depth, and enough files that renaming each one
-  // would be noise rather than organisation.
-  return isAssetBundle(abs) && [...walkAll(abs)].length >= 10;
-}
-
-/** Yields every file, and every verbatim folder as one unit. */
 function* walk(dir: string, rel = ""): Generator<string> {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const relPath = rel ? `${rel}/${entry.name}` : entry.name;
     if (entry.isDirectory()) {
       if (skipDirs.some((r) => r.test(entry.name))) continue;
-      const abs = join(dir, entry.name);
-      const isNumbered =
-        numberedDir.test(entry.name) || areaDir.test(entry.name);
-      if (isVerbatim(abs, entry.name, isNumbered)) {
+      if (dropFolders.has(relPath)) continue;
+      if (codeFolders.has(relPath)) {
         yield relPath;
         continue;
       }
-      yield* walk(abs, relPath);
+      yield* walk(join(dir, entry.name), relPath);
     } else if (!skipFiles.some((r) => r.test(entry.name))) {
       yield relPath;
     }
   }
 }
 
-/** Plain file walk, for counting what a verbatim folder holds. */
+/** Plain file walk, for what a code folder holds. */
 function* walkAll(dir: string, rel = ""): Generator<string> {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const relPath = rel ? `${rel}/${entry.name}` : entry.name;
@@ -176,42 +137,47 @@ function* walkAll(dir: string, rel = ""): Generator<string> {
 }
 
 // ---------------------------------------------------------------------------
-// Placement: the Johnny Decimal folders
+// Placement: the Johnny Decimal folders become signatures
 // ---------------------------------------------------------------------------
 
 const areaDir = /^\d+-\d+ /; // `20-29 Missions`
 const numberedDir = /^(\d{2}) (.+)$/; // `21 iteam`
+const idDir = /^(?:\d{2}\.)?(\d{2}) (.+)$/; // `14 landslide mediation`, `26.01 Onboarding`
 const jdIdFile = /^(\d{2})\.(\d{2}) (.+)$/; // `25.03 Acorn Medic Branding`
 
 type Placement = {
-  /** Library folder: the vault's own, minus the area layer and `assets/`. */
-  folder: string;
   signature?: string;
+  category?: string;
+  section?: string;
   warnings: string[];
 };
 
 /**
- * Where a file lives in the library: exactly where it lived in the vault,
- * minus the area folder (the category number already says it) and any
- * `assets/` (assets live beside their notes). Deeper nesting is kept as it
- * is -- inboxes, code, trips by date, and things simply not sorted yet are
- * all legitimately not JD. The signature is the first two numbered levels,
- * and only when the tree starts with one; a non-JD top folder gets none.
+ * What a file's vault folders become. The library is flat: the folders'
+ * meaning moves into the Denote signature -- `21` for a note in `21 iteam`,
+ * `21=14` for one in `21 iteam/14 landslide mediation` -- which is the
+ * Johnny Decimal address, sortable and searchable from the file name. The
+ * category and the folder under it are also recorded so the category's hub
+ * note can list its notes by where they were; a sub-folder without a number
+ * (`20260224 refi`, `Countries`) is kept that way only, since no number is
+ * invented for it. The area folder (`20-29 Missions`) is implied by the
+ * category number and dropped; `assets/` folders dissolve.
  */
 function place(relPath: string): Placement {
   const parts = relPath.split("/");
   const dirs = parts.slice(0, -1).filter((d) => d !== "assets");
   const kept = dirs[0] && areaDir.test(dirs[0]) ? dirs.slice(1) : dirs;
   const category = kept[0] && numberedDir.exec(kept[0]);
-  const id = category && kept[1] && numberedDir.exec(kept[1]);
+  const id = category && kept[1] && idDir.exec(kept[1]);
   const signature = category
     ? id
       ? `${category[1]}=${id[1]}`
       : category[1]
     : undefined;
   return {
-    folder: kept.join("/"),
     signature,
+    category: kept[0],
+    section: kept[1],
     warnings: category
       ? []
       : [
@@ -583,24 +549,25 @@ function main() {
     const placement = place(rel);
     const stat = statSync(abs);
     if (stat.isDirectory()) {
-      // Verbatim: copied whole, name and contents untouched.
-      const target = `${placement.folder}/${name}`;
+      // Code: copied whole to ~/code, name and contents untouched. A link
+      // into it becomes an absolute `file:` link, which Emacs follows.
+      const target = codeFolders.get(rel)!;
+      const home = `~/${relative(homedir(), config.folders.codeDir)}`;
       entries.push({
         source: rel,
-        kind: "verbatim",
+        kind: "code",
         target,
         identifier: "",
         identifierFrom: "birthtime",
         title: name,
         keywords: [],
-        warnings: placement.warnings,
+        warnings: [],
       });
-      links[rel] = target;
-      links[name] = links[name] ?? target;
+      links[rel] = `${home}/${target}`;
+      links[name] = links[name] ?? links[rel];
       for (const inner of walkAll(abs, rel)) {
         const innerName = inner.split("/").pop()!;
-        links[inner] =
-          `${placement.folder}/${inner.slice(rel.length - name.length)}`;
+        links[inner] = `${home}/${target}/${inner.slice(rel.length + 1)}`;
         links[innerName] = links[innerName] ?? links[inner];
         const innerStem = innerName.replace(/\.[^.]+$/, "");
         links[innerStem] = links[innerStem] ?? links[inner];
@@ -608,7 +575,7 @@ function main() {
       continue;
     }
     const stem = name.replace(/\.[^.]+$/, "");
-    const isJournalFolder = placement.folder === config.vaultJournalFolder;
+    const isJournalFolder = placement.category === config.vaultJournalFolder;
 
     if (isMd) {
       const text = readFileSync(abs, "utf8");
@@ -626,8 +593,20 @@ function main() {
       if (!date) date = new Date(stat.birthtime);
       const identifier = claim(date);
       const jd = jdIdFile.exec(stem);
-      const signature = jd ? `${jd[1]}=${jd[2]}` : placement.signature;
+      let signature = jd ? `${jd[1]}=${jd[2]}` : placement.signature;
       const warnings = [...placement.warnings];
+      // The category's own note -- `21.00 iteam`, or `iteam` in `21 iteam`
+      // or its `00 meta` -- is its hub, and `NN=00` is the hub's address.
+      const cat = placement.category && numberedDir.exec(placement.category);
+      if (
+        cat &&
+        (!placement.section || /^00 /.test(placement.section)) &&
+        (jd?.[2] === "00" ||
+          sluggify("title", stripPrefixes(stem) ?? stem) ===
+            sluggify("title", cat[2]))
+      ) {
+        signature = `${cat[1]}=00`;
+      }
       if (jd && placement.signature && !placement.signature.startsWith(jd[1])) {
         warnings.push(
           `file says ${jd[1]}.${jd[2]} but lives under ${placement.signature}`,
@@ -663,7 +642,13 @@ function main() {
         });
         continue;
       }
-      const target = `${placement.folder}/${formatDenoteName({ identifier, signature, title, keywords, extension: ".org" })}`;
+      const target = formatDenoteName({
+        identifier,
+        signature,
+        title,
+        keywords,
+        extension: ".org",
+      });
       entries.push({
         source: rel,
         kind: "note",
@@ -673,6 +658,8 @@ function main() {
         title,
         signature,
         keywords,
+        category: placement.category,
+        section: placement.section,
         warnings,
       });
       links[stem] = target;
@@ -685,8 +672,10 @@ function main() {
         continue;
       }
       const identifier = claim(date);
-      const folder = isJournalFolder ? config.journalFolder : placement.folder;
-      const target = `${folder}/${denoteAttachmentName(identifier, name)}`;
+      const named = denoteAttachmentName(identifier, name);
+      const target = isJournalFolder
+        ? `${config.journalFolder}/${named}`
+        : named;
       entries.push({
         source: rel,
         kind: isJournalFolder ? "journal-attachment" : "attachment",
@@ -819,13 +808,14 @@ function report(m: Manifest): string {
   const unassigned = group(
     (w) => w.startsWith("not under") || w.startsWith("loose"),
   );
-  const verbatim = by("verbatim");
+  const code = by("code");
   const mismatch = group((w) => w.includes("but lives under"));
   const shared = group((w) => w.includes("is shared by"));
-  const folders = new Set(
-    m.entries
-      .filter((e) => e.target && e.kind === "note")
-      .map((e) => e.target!.split("/").slice(0, -1).join("/")),
+  const signatures = new Set(
+    m.entries.filter((e) => e.target && e.signature).map((e) => e.signature),
+  );
+  const categories = new Set(
+    m.entries.filter((e) => e.target && e.category).map((e) => e.category),
   );
   const idFromCounts: Record<string, number> = {};
   for (const e of m.entries) {
@@ -849,27 +839,28 @@ function report(m: Manifest): string {
     `|---|---|`,
     `| notes | ${by("note").length} |`,
     `| attachments | ${by("attachment").length} |`,
-    `| verbatim folders, copied untouched (${by("verbatim").reduce((n, e) => n + [...walkAll(join(m.vault, e.source))].length, 0)} files) | ${by("verbatim").length} |`,
+    `| code folders, copied to ~/code (${code.reduce((n, e) => n + [...walkAll(join(m.vault, e.source))].length, 0)} files) | ${code.length} |`,
     `| journal entries (from ${new Set(by("journal").map((e) => e.source)).size} sources) | ${by("journal").length} |`,
     `| journal attachments | ${by("journal-attachment").length} |`,
     `| dropped | ${dropped.length} |`,
-    `| library folders created | ${folders.size} |`,
+    `| distinct signatures | ${signatures.size} |`,
+    `| categories (hub notes) | ${categories.size} |`,
     "",
     `Identifier dates from: ${idFrom.map(([k, v]) => `${k} ${v}`).join(", ")}.`,
     "",
     `## Needs a decision`,
     "",
-    `### ${unassigned.length} files not under a JD category (kept where they are)`,
+    `### ${unassigned.length} files not under a JD category (no signature)`,
     "",
     ...summarise(
       unassigned.map((e) => e.source.split("/").slice(0, 2).join("/")),
     ),
     "",
-    `### ${verbatim.length} folders copied verbatim (code, repositories, saved pages, batches of files)`,
+    `### ${code.length} code folders → ~/code`,
     "",
-    ...verbatim.map(
+    ...code.map(
       (e) =>
-        `- \`${e.source}\` (${[...walkAll(join(m.vault, e.source))].length} files)`,
+        `- \`${e.source}\` → \`${e.target}\` (${[...walkAll(join(m.vault, e.source))].length} files)`,
     ),
     "",
     `### ${mismatch.length} notes whose NN.NN prefix disagrees with their folder`,
