@@ -56,10 +56,22 @@ const previousStaging = join(config.out, "staging-previous");
 function libraryOriginal(relPath: string): string {
   relPath = originalOf.get(relPath) ?? relPath;
   const kept = join(config.out, "replaced", relPath);
-  return readFileSync(
-    existsSync(kept) ? kept : join(config.library, relPath),
-    "utf8",
-  );
+  if (existsSync(kept)) return readFileSync(kept, "utf8");
+  const inLibrary = join(config.library, relPath);
+  if (existsSync(inLibrary)) return readFileSync(inLibrary, "utf8");
+  // Renamed by an earlier run -- to carry an address, say: the identifier
+  // still finds it, under whatever name it has now.
+  const id = parseDenoteName(relPath)?.identifier;
+  const dir = join(config.library, dirname(relPath));
+  const now =
+    id && existsSync(dir)
+      ? readdirSync(dir).find(
+          (f) => f.startsWith(id) && !f.endsWith("~") && !f.endsWith(".bak"),
+        )
+      : undefined;
+  if (!now) throw new Error(`no library note for ${relPath}`);
+  const asKept = join(config.out, "replaced", dirname(relPath), now);
+  return readFileSync(existsSync(asKept) ? asKept : join(dir, now), "utf8");
 }
 
 /**
@@ -344,10 +356,13 @@ function libraryTitle(libPath: string): string {
   if (cached) return cached;
   let title = libPath.split("/").pop()!;
   try {
-    const head = readFileSync(join(config.library, libPath), "utf8").slice(
-      0,
-      2000,
-    );
+    // A library note renamed to carry an address is read under its old
+    // name; a note staged already is read from the staging.
+    const head = (
+      existsSync(join(staging, libPath))
+        ? readFileSync(join(staging, libPath), "utf8")
+        : libraryOriginal(libPath)
+    ).slice(0, 2000);
     const m = /^#\+title:\s*(.+)$/im.exec(head);
     if (m) title = m[1].trim();
   } catch {

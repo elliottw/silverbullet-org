@@ -171,6 +171,14 @@ function main() {
     const was = stale.find((other) => other.endsWith(".org"));
     if (was) {
       const had = read(config.library, was)!;
+      // A library note the stagings never held is being renamed: keep its
+      // text as it was, so later runs can start from it rather than from
+      // what this one appends.
+      if (apply && !before(was)) {
+        const kept = join(config.out, "replaced", was);
+        mkdirSync(dirname(kept), { recursive: true });
+        writeFileSync(kept, had);
+      }
       // A note the stagings never held is its own original.
       if (!before(was) || same(had, before(was), was)) {
         note("renamed and updated", `${was} → ${rel}`);
