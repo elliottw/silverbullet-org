@@ -503,9 +503,11 @@ export class Client {
     // And keeping it up to date as we go
     this.eventHook.addLocalListener("file:changed", (fileName: string) => {
       this.clientSystem.allKnownFiles.add(fileName);
+      this.schedulePageListRefresh();
     });
     this.eventHook.addLocalListener("file:deleted", (fileName: string) => {
       this.clientSystem.allKnownFiles.delete(fileName);
+      this.schedulePageListRefresh();
     });
     this.eventHook.addLocalListener("file:listed", (allFiles: FileMeta[]) => {
       this.clientSystem.allKnownFiles.clear();
@@ -703,6 +705,26 @@ export class Client {
       );
       globalThis.sbRuntime.ready = true;
     });
+  }
+
+  private pageListRefreshTimer?: ReturnType<typeof setTimeout>;
+
+  /**
+   * Rebuilds the page list a moment after files change. The list is what
+   * link rendering and Denote identifier resolution read, and a note renamed
+   * outside the editor -- in Emacs, arriving by sync -- would otherwise keep
+   * its old name here until the next full index, with every link to it
+   * resolving to a page that no longer exists. Debounced: a sync delivers
+   * files in bursts, and the rebuild queries the whole index.
+   */
+  private schedulePageListRefresh() {
+    if (!this.pageListLoaded) {
+      return;
+    }
+    clearTimeout(this.pageListRefreshTimer);
+    this.pageListRefreshTimer = setTimeout(() => {
+      this.updatePageListCache().catch(console.error);
+    }, 1500);
   }
 
   async updatePageListCache() {
