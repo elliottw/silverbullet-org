@@ -18,7 +18,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { join, relative, sep } from "node:path";
+import { dirname, join, relative, sep } from "node:path";
 import { homedir } from "node:os";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
@@ -144,8 +144,41 @@ const areaDir = /^\d+-\d+ /; // `20-29 Missions`
 const numberedDir = /^(\d{2}) (.+)$/; // `21 iteam`
 const idDir = /^(?:\d{2}\.)?(\d{2}) (.+)$/; // `14 landslide mediation`, `26.01 Onboarding`
 const jdIdFile = /^(\d{2})\.(\d{2}) (.+)$/; // `25.03 Acorn Medic Branding`
+const jdIdSuffix = /^(.+?) (\d{2})\.(\d{2})$/; // `adrianna 61.54`
 
-type Placement = {
+/** A Johnny Decimal ID written into a note's name, before or after the title. */
+export function jdIdOf(
+  stem: string,
+): { category: string; id: string } | undefined {
+  const prefix = jdIdFile.exec(stem);
+  if (prefix) return { category: prefix[1], id: prefix[2] };
+  const suffix = jdIdSuffix.exec(stem);
+  if (suffix) return { category: suffix[2], id: suffix[3] };
+  return undefined;
+}
+
+/**
+ * The numbered folder a note stands for, if it is a *folder note*: a note
+ * beside a numbered folder of the same name (`existential.md` next to
+ * `02 existential/`), which Obsidian users write as the folder's own page.
+ * Its address is the folder's.
+ */
+export function folderNoteId(
+  dirAbs: string,
+  stem: string,
+): { id: string; folder: string } | undefined {
+  const wanted = sluggify("title", stem);
+  for (const entry of readdirSync(dirAbs, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const m = idDir.exec(entry.name);
+    if (m && sluggify("title", m[2]) === wanted) {
+      return { id: m[1], folder: entry.name };
+    }
+  }
+  return undefined;
+}
+
+export type Placement = {
   signature?: string;
   category?: string;
   section?: string;
@@ -163,7 +196,7 @@ type Placement = {
  * invented for it. The area folder (`20-29 Missions`) is implied by the
  * category number and dropped; `assets/` folders dissolve.
  */
-function place(relPath: string): Placement {
+export function place(relPath: string): Placement {
   const parts = relPath.split("/");
   const dirs = parts.slice(0, -1).filter((d) => d !== "assets");
   const kept = dirs[0] && areaDir.test(dirs[0]) ? dirs.slice(1) : dirs;
@@ -287,6 +320,7 @@ function stripPrefixes(stem: string): string {
       // a file name; a plain hyphen reads the same and slugs cleanly.
       .replace(/\s*[—–]\s*/g, " - ")
       .replace(jdIdFile, "$3")
+      .replace(jdIdSuffix, "$1")
       .replace(/^0?\d{8}\s*/, "")
       .replace(/^\d{4}-\d{2}-\d{2}\s*/, "")
       .trim()
@@ -592,24 +626,37 @@ function main() {
       }
       if (!date) date = new Date(stat.birthtime);
       const identifier = claim(date);
-      const jd = jdIdFile.exec(stem);
-      let signature = jd ? `${jd[1]}=${jd[2]}` : placement.signature;
+      const jd = jdIdOf(stem);
+      let signature = jd ? `${jd.category}=${jd.id}` : placement.signature;
       const warnings = [...placement.warnings];
+      const cat = placement.category && numberedDir.exec(placement.category);
+      // A folder note takes the folder's address, and is listed with it.
+      const folderNote =
+        cat && !jd && !placement.section
+          ? folderNoteId(dirname(abs), stem)
+          : undefined;
+      if (folderNote) {
+        signature = `${cat![1]}=${folderNote.id}`;
+        placement.section = folderNote.folder;
+      }
       // The category's own note -- `21.00 iteam`, or `iteam` in `21 iteam`
       // or its `00 meta` -- is its hub, and `NN=00` is the hub's address.
-      const cat = placement.category && numberedDir.exec(placement.category);
       if (
         cat &&
         (!placement.section || /^00 /.test(placement.section)) &&
-        (jd?.[2] === "00" ||
+        (jd?.id === "00" ||
           sluggify("title", stripPrefixes(stem) ?? stem) ===
             sluggify("title", cat[2]))
       ) {
         signature = `${cat[1]}=00`;
       }
-      if (jd && placement.signature && !placement.signature.startsWith(jd[1])) {
+      if (
+        jd &&
+        placement.signature &&
+        !placement.signature.startsWith(jd.category)
+      ) {
         warnings.push(
-          `file says ${jd[1]}.${jd[2]} but lives under ${placement.signature}`,
+          `file says ${jd.category}.${jd.id} but lives under ${placement.signature}`,
         );
       }
       const keywords = [
@@ -907,4 +954,6 @@ function summarise(paths: string[]): string[] {
     .map(([p, n]) => `- ${n} in \`${p}\``);
 }
 
-main();
+if (process.argv[1]?.endsWith("manifest.ts")) {
+  main();
+}
