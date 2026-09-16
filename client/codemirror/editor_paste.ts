@@ -286,7 +286,13 @@ export function documentExtension(editor: Client) {
    *   which arrives with no name to take one from
    */
   async function saveFile(file: UploadFile, fallbackExtension = "") {
-    const maxSize = maximumDocumentSize;
+    // The same setting the upload command honours; a paste is an upload.
+    const configured = editor.config.get<unknown>(
+      "maximumDocumentSize",
+      maximumDocumentSize,
+    );
+    const maxSize =
+      typeof configured === "number" ? configured : maximumDocumentSize;
 
     if (file.content.length > maxSize * 1024 * 1024) {
       editor.ui.flashNotification(

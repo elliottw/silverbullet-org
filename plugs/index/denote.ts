@@ -1304,6 +1304,12 @@ export async function updateDynamicBlocks(): Promise<number> {
   if (updated === text) {
     return 0;
   }
+  // Rendering took a moment; a keystroke in it would be lost to a whole-text
+  // replacement. Leave the page alone then -- the save that follows the
+  // typing brings the blocks up to date instead.
+  if ((await editor.getText()) !== text) {
+    return 0;
+  }
   updatingDblocks = true;
   try {
     await editor.setText(updated);
@@ -1345,6 +1351,35 @@ export async function updateDynamicBlocksOnSave(pageName: string) {
     await updateDynamicBlocks();
   } catch (e: any) {
     console.warn("[denote] could not update dynamic blocks", e.message);
+  }
+}
+
+/**
+ * Brings a note's dynamic blocks up to date as it is opened, so a hub page
+ * reads true without a keystroke -- the notes it lists were written and
+ * renamed while it sat closed. Only a writable page is touched, and only
+ * when something changed, which then saves as any edit does.
+ *
+ * Set `denote.updateDblocksOnOpen` to false to make it manual.
+ */
+export async function updateDynamicBlocksOnOpen(pageName: string) {
+  if (!(await system.getConfig("denote.updateDblocksOnOpen", true))) {
+    return;
+  }
+  try {
+    if ((await editor.getCurrentPage()) !== pageName) {
+      return;
+    }
+    const meta = await editor.getCurrentPageMeta();
+    if (meta?.perm === "ro") {
+      return;
+    }
+    const changed = await updateDynamicBlocks();
+    if (changed > 0) {
+      await editor.save();
+    }
+  } catch (e: any) {
+    console.warn("[denote] could not update dynamic blocks on open", e.message);
   }
 }
 

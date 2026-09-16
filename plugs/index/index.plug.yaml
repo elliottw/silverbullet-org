@@ -148,6 +148,10 @@ functions:
     events:
       - page:saved
 
+  denoteUpdateDblocksOnOpen:
+    path: ./denote.ts:updateDynamicBlocksOnOpen
+    events:
+      - editor:pageLoaded
   # Naming a pasted or uploaded document — see `denoteAttachmentPath`. Both
   # the upload command and the editor's paste handler call this, so an
   # identifier is issued from one place and stays unique library-wide.

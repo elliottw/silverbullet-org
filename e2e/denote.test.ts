@@ -692,6 +692,27 @@ Trailing paragraph.
     expect(blockOf(after)).toEqual(blockOf(text));
     expect(after).toContain("edited!");
   });
+
+  test("a stale block refreshes when the page is opened, and is saved", async ({
+    sbPage,
+    sbServer,
+  }) => {
+    await gotoSilverBulletPage(sbPage, sbServer, PAGE);
+    const editor = sbPage.locator("#sb-editor .cm-content");
+    await expect(editor).toContainText("Court costs", { timeout: 20_000 });
+    // No keystroke: opening is enough.
+    await expect(editor).toContainText("Waivers of Filing Fees", {
+      timeout: 20_000,
+    });
+    await sbPage.waitForTimeout(3000);
+    const onDisk = await (
+      await fetch(`${sbServer.url}/.fs/${encodeURI(PAGE)}`, {
+        headers: { "X-Sync-Mode": "true" },
+      })
+    ).text();
+    expect(onDisk).toContain("denote:20240126T082320");
+    expect(onDisk).toContain("Trailing paragraph.");
+  });
 });
 
 test.describe("Inserting dynamic blocks", () => {
