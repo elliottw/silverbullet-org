@@ -39,11 +39,28 @@ import { linkSyntaxFor } from "@silverbulletmd/silverbullet/lib/link_syntax";
 import {
   collectionPaths,
   createParentItem,
+  getZoteroItem,
   listCollections,
+  setZoteroItemTags,
   uploadToZotero,
   type ZoteroCredentials,
 } from "@silverbulletmd/silverbullet/lib/zotero_api";
-import { createDenoteNote, invalidateDenoteIdentifiers } from "./denote.ts";
+import {
+  mergeTags,
+  slugifyTag,
+} from "@silverbulletmd/silverbullet/lib/zotero_sync";
+import {
+  denoteFileType,
+  parseDenoteFrontMatter,
+  parseDenoteName,
+  rewriteDenoteFrontMatter,
+} from "@silverbulletmd/silverbullet/lib/denote";
+import {
+  createDenoteNote,
+  invalidateDenoteIdentifiers,
+  linkFor,
+  renameFromFrontMatter,
+} from "./denote.ts";
 import type { FrontMatter } from "./frontmatter.ts";
 import type { RelationObject } from "./relation.ts";
 import { buildLineIndex, extractSnippet } from "./snippet.ts";
@@ -80,6 +97,18 @@ export type ZoteroConfig = {
   rootCollection?: string;
   /** Keyword a reference note carries; `citar-denote` uses `bib`. */
   referenceKeyword: string;
+  /**
+   * Whether adding a document to Zotero also makes a reference note and
+   * links that, rather than linking the file itself. On by default: a
+   * citation then has somewhere to live.
+   */
+  referenceNoteOnAdd: boolean;
+  /**
+   * How a reference note's keywords and its item's tags are kept in step:
+   * `both` (two-way), `fromZotero` (tags arrive, nothing is written to the
+   * library), or `off`.
+   */
+  syncKeywords: "both" | "fromZotero" | "off";
 };
 
 export async function zoteroConfig(): Promise<ZoteroConfig> {
@@ -92,6 +121,8 @@ export async function zoteroConfig(): Promise<ZoteroConfig> {
     api: cfg.api,
     rootCollection: cfg.rootCollection,
     referenceKeyword: cfg.referenceKeyword ?? "bib",
+    referenceNoteOnAdd: cfg.referenceNoteOnAdd ?? true,
+    syncKeywords: cfg.syncKeywords ?? "both",
   };
 }
 
@@ -170,6 +201,44 @@ export function referenceOf(text: string): string | undefined {
   return referenceLine.exec(text)?.[1].trim().replace(/^@/, "");
 }
 
+const itemLine = /^#\+zotero:\s*(.+)$/im;
+const syncedLine = /^#\+zotero_tags:\s*(.*)$/im;
+
+/** The Zotero item a reference note is about, from its `#+zotero:` line. */
+export function itemOf(text: string): string | undefined {
+  return itemLine.exec(text)?.[1].trim() || undefined;
+}
+
+/** The tag slugs the last sync left this note and its item agreeing on. */
+export function syncedTagsOf(text: string): string[] {
+  const raw = syncedLine.exec(text)?.[1] ?? "";
+  return raw
+    .split(/[\s,:]+/)
+    .map(slugifyTag)
+    .filter(Boolean);
+}
+
+/** The first `[[zotero:KEY]]` in a note -- the file it is about. */
+function attachmentOf(text: string): string | undefined {
+  return /\[\[zotero:([A-Z0-9]{8})\]/.exec(text)?.[1];
+}
+
+/**
+ * A reference note, as the sync pass needs it: which item it is about, and
+ * the two tag lists to reconcile. Indexed so the pass is a query rather than
+ * a walk over every note in the library.
+ */
+export type ZoteroNoteObject = ObjectValue<{
+  tag: "zotero-note";
+  page: string;
+  citekey?: string;
+  item?: string;
+  attachment?: string;
+  keywords: string[];
+  synced: string[];
+  pageLastModified: string;
+}>;
+
 /**
  * Relations from a note to the items it cites (`citation`) and, for a
  * reference note, to the item it is about (`reference`).
@@ -222,7 +291,33 @@ export async function indexCitations(
   if (reference) {
     objects.push(relation("reference", reference));
   }
-  return objects;
+  const item = itemOf(text);
+  const attachment = attachmentOf(text);
+  const { referenceKeyword } = await zoteroConfig();
+  const parsed = parseDenoteFrontMatter(
+    text,
+    denoteFileType(pageMeta.name.endsWith(".org") ? ".org" : ".md", text),
+  );
+  const isReferenceNote =
+    !!reference ||
+    !!item ||
+    (parsed.keywords.includes(referenceKeyword) && !!attachment);
+  const extra: ObjectValue<any>[] = isReferenceNote
+    ? [
+        {
+          ref: pageMeta.name,
+          tag: "zotero-note",
+          page: pageMeta.name,
+          ...(reference ? { citekey: reference } : {}),
+          ...(item ? { item } : {}),
+          ...(attachment ? { attachment } : {}),
+          keywords: parsed.keywords as string[],
+          synced: syncedTagsOf(text),
+          pageLastModified: pageMeta.lastModified,
+        } satisfies ZoteroNoteObject,
+      ]
+    : [];
+  return [...objects, ...extra];
 }
 
 // ---------------------------------------------------------------------------
@@ -347,30 +442,14 @@ export async function newReferenceNoteCommand() {
     "Select the item the note is about",
   );
   if (!entry) return;
-  const { referenceKeyword } = await zoteroConfig();
-  const keywords = [
-    ...new Set([referenceKeyword, ...entry.keywords.map(sluggifyKeyword)]),
-  ]
-    .filter(Boolean)
-    .sort();
-  const name = await createDenoteNote({
+  const note = await createReferenceNote({
     title: entry.title,
-    keywords,
-    fileType: "org",
+    citekey: entry.citekey,
+    keywords: entry.keywords,
+    attachment: entry.attachments[0]?.key,
+    fileName: entry.attachments[0]?.name,
   });
-  // Slip the reference line in after the identifier, where citar-denote puts it.
-  const text = await space.readPage(name);
-  const withReference = text.replace(
-    /^(#\+identifier:.*)$/m,
-    `$1\n#+reference:  ${entry.citekey}`,
-  );
-  await space.writePage(name, `${withReference}\n[cite:@${entry.citekey}]\n`);
-  invalidateDenoteIdentifiers();
-  await editor.navigate({ path: name as any });
-}
-
-function sluggifyKeyword(keyword: string): string {
-  return keyword.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  await editor.navigate({ path: note.page as any });
 }
 
 /** `Zotero: Open` — the citation or `zotero:` link under the cursor. */
@@ -407,7 +486,7 @@ export async function addFile(
   name: string,
   contentType: string,
   content: Uint8Array,
-): Promise<string> {
+): Promise<{ attachment: string; parent: string; title: string }> {
   const { userId, apiKey, api } = await zoteroConfig();
   if (!userId || !apiKey) {
     throw new Error(
@@ -438,9 +517,109 @@ export async function addFile(
     title: title.trim() || proposed,
     collections: collection ? [collection] : [],
   });
-  return uploadToZotero(creds, name, contentType, content, {
+  const attachment = await uploadToZotero(creds, name, contentType, content, {
     parentItem: parent,
   });
+  return { attachment, parent, title: title.trim() || proposed };
+}
+
+/**
+ * Adding a document, the whole gesture: the file goes to Zotero, a reference
+ * note is made for the item it hangs from, and what comes back is the link to
+ * write where the drop happened. A citation then has somewhere to live -- the
+ * note -- rather than pointing at a PDF.
+ *
+ * Set `zotero.referenceNoteOnAdd` to false to link the file itself instead.
+ */
+export async function addDocument(
+  name: string,
+  contentType: string,
+  content: Uint8Array,
+  page: string,
+): Promise<string> {
+  const { referenceNoteOnAdd } = await zoteroConfig();
+  const { attachment, parent, title } = await addFile(
+    name,
+    contentType,
+    content,
+  );
+  if (!referenceNoteOnAdd) {
+    return linkForItem(attachment, name, page);
+  }
+  const note = await createReferenceNote({
+    title,
+    item: parent,
+    attachment,
+    fileName: name,
+  });
+  await editor.flashNotification(`Reference note: ${title}`);
+  return linkFor(linkSyntaxFor(page), `denote:${note.identifier}`, title);
+}
+
+/**
+ * The reference note for an item: a Denote note carrying the reference
+ * keyword, a link to the file, and the item's key.
+ *
+ * `#+reference:` is what `citar-denote` looks for, and it holds Better
+ * BibTeX's citekey -- which does not exist yet for an item created moments
+ * ago, since BBT writes it on its next export. So the note records the item
+ * key in `#+zotero:` and the next sync fills the citekey in.
+ */
+export async function createReferenceNote(spec: {
+  title: string;
+  item?: string;
+  attachment?: string;
+  fileName?: string;
+  citekey?: string;
+  keywords?: string[];
+}): Promise<{ page: string; identifier: string }> {
+  const { referenceKeyword } = await zoteroConfig();
+  const keywords = [
+    ...new Set([referenceKeyword, ...(spec.keywords ?? []).map(slugifyTag)]),
+  ]
+    .filter(Boolean)
+    .sort();
+  const page = await createDenoteNote({
+    title: spec.title,
+    keywords,
+    fileType: "org",
+  });
+  let text = await space.readPage(page);
+  if (spec.citekey) text = setLine(text, "reference", spec.citekey);
+  if (spec.item) text = setLine(text, "zotero", spec.item);
+  text = setLine(
+    text,
+    "zotero_tags",
+    (spec.keywords ?? []).map(slugifyTag).join(" "),
+  );
+  const body = [
+    spec.citekey ? `[cite:@${spec.citekey}]` : "",
+    spec.attachment
+      ? `[[zotero:${spec.attachment}][${spec.fileName ?? "the file"}]]`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+  await space.writePage(page, `${text.trimEnd()}\n\n${body}\n`);
+  invalidateDenoteIdentifiers();
+  const identifier = parseDenoteName(page)?.identifier ?? "";
+  return { page, identifier };
+}
+
+/**
+ * Sets a `#+key:` line in a note's front matter, after `#+identifier:` where
+ * there is none yet -- the place `citar-denote` writes `#+reference:`. An
+ * empty value removes the line.
+ */
+function setLine(text: string, key: string, value: string): string {
+  const line = new RegExp(`^#\\+${key}:.*$`, "im");
+  if (!value) {
+    return text.replace(new RegExp(`^#\\+${key}:.*\\n?`, "im"), "");
+  }
+  const pad = " ".repeat(Math.max(1, 13 - key.length - 2));
+  const rendered = `#+${key}:${pad}${value}`;
+  if (line.test(text)) return text.replace(line, rendered);
+  return text.replace(/^(#\+identifier:.*)$/m, `$1\n${rendered}`);
 }
 
 /** The best title on offer for a file about to be added. */
@@ -547,13 +726,196 @@ export async function addFileCommand() {
     return;
   }
   const file = await editor.uploadFile();
-  let key: string;
+  const page = await editor.getCurrentPage();
+  let link: string;
   try {
-    key = await addFile(file.name, file.contentType, file.content);
+    link = await addDocument(file.name, file.contentType, file.content, page);
   } catch (e: any) {
     if (/Cancelled/.test(String(e.message))) return;
     throw e;
   }
-  const page = await editor.getCurrentPage();
-  await editor.insertAtCursor(await linkForItem(key, file.name, page));
+  await editor.insertAtCursor(link);
+}
+
+// ---------------------------------------------------------------------------
+// Keeping keywords and tags in step
+// ---------------------------------------------------------------------------
+
+/** Guards against the sync's own writes re-entering it. */
+let syncing = false;
+
+/**
+ * Reconciles one reference note with its Zotero item: the citekey, once
+ * Better BibTeX has minted one, and the keywords against the item's tags.
+ *
+ * The note keeps the last agreed tag set in `#+zotero_tags:`, so a keyword
+ * added here and a tag added there are told apart rather than fought over --
+ * see `mergeTags`. Returns what it changed, for the command's report.
+ */
+export async function syncReferenceNote(
+  page: string,
+  options: {
+    /**
+     * Whether a note that has never been synced may push its keywords up as
+     * tags. Opening a note does not: its keywords predate the arrangement,
+     * and sending a library's worth of them to Zotero is not something to do
+     * behind someone's back. `Zotero: Sync Reference Notes` does.
+     */
+    firstContactPush?: boolean;
+  } = {},
+): Promise<{ note: boolean; zotero: boolean } | undefined> {
+  const { syncKeywords, referenceKeyword, userId, apiKey, api } =
+    await zoteroConfig();
+  if (syncKeywords === "off" || syncing) return;
+  let text: string;
+  try {
+    text = await space.readPage(page);
+  } catch {
+    return;
+  }
+  const citekey = referenceOf(text);
+  const attachment = /\[\[zotero:([A-Z0-9]{8})\]/.exec(text)?.[1];
+  const entry = citekey
+    ? await entryByCitekey(citekey)
+    : attachment
+      ? await entryByItemKey(attachment)
+      : undefined;
+  if (!entry) return;
+
+  const parsed = parseDenoteFrontMatter(text, denoteFileType(".org", text));
+  const noteKeywords = (parsed.keywords as string[]).filter(
+    (k) => k !== referenceKeyword,
+  );
+  const shadow = syncedTagsOf(text);
+  const firstContact = !syncedLine.test(text);
+  const canPush =
+    syncKeywords === "both" &&
+    !!userId &&
+    !!apiKey &&
+    (!firstContact || options.firstContactPush === true);
+
+  // Nothing to reconcile: the note, the shadow and the bibliography all say
+  // the same, and the citekey is in place. Returning here is what keeps
+  // opening a reference note from costing a request.
+  const agrees = (a: string[], b: string[]) =>
+    a.length === b.length &&
+    [...a].sort().every((x, i) => x === [...b].sort()[i]);
+  const bibTags = entry.keywords.map(slugifyTag).filter(Boolean);
+  if (citekey && agrees(noteKeywords, shadow) && agrees(shadow, bibTags)) {
+    return { note: false, zotero: false };
+  }
+
+  // Zotero's own tags, from the API: the bibliography is Better BibTeX's
+  // export and lags a change by however long until its next write, so a tag
+  // pushed a moment ago would read back as one Zotero had dropped. The export
+  // stays the authority on the citekey, which is BBT's to mint.
+  const item = itemOf(text) ?? (await parentOf(attachment));
+  const creds: ZoteroCredentials | undefined =
+    userId && apiKey ? { userId, apiKey, api } : undefined;
+  const current = creds && item ? await getZoteroItem(creds, item) : undefined;
+  const zoteroTags = current ? current.tags.map((t) => t.tag) : entry.keywords;
+  const push = canPush && !!current;
+  const merged = mergeTags({ noteKeywords, zoteroTags, shadow, push });
+
+  // Zotero first: a failed write must not leave the note claiming agreement.
+  let zoteroWritten = false;
+  if (merged.zoteroChanged && push && current) {
+    zoteroWritten = await setZoteroItemTags(
+      creds!,
+      current.key,
+      merged.tags,
+      current.version,
+    );
+  }
+  if (zoteroWritten && item && !itemOf(text)) {
+    text = setLine(text, "zotero", item);
+  }
+
+  let updated = text;
+  if (!citekey) updated = setLine(updated, "reference", entry.citekey);
+  if (merged.noteChanged) {
+    updated = rewriteDenoteFrontMatter(updated, "org", {
+      keywords: [...new Set([referenceKeyword, ...merged.keywords])]
+        .filter(Boolean)
+        .sort(),
+    });
+  }
+  // The shadow records only what both sides really hold: when a push failed,
+  // what the note last agreed on stands.
+  const agreed =
+    merged.zoteroChanged && push && !zoteroWritten ? shadow : merged.shadow;
+  updated = setLine(updated, "zotero_tags", agreed.join(" "));
+
+  if (updated === (await space.readPage(page))) {
+    return { note: false, zotero: zoteroWritten };
+  }
+  syncing = true;
+  try {
+    // The page the editor is showing belongs to the editor: writing it
+    // underneath would be overwritten by the next save. Its own save then
+    // brings the file name in line (`renameFromFrontMatterOnSave`).
+    if ((await currentPage()) === page) {
+      await editor.setText(updated);
+      await editor.save();
+    } else {
+      await space.writePage(page, updated);
+      // Keywords live in the file name too.
+      await renameFromFrontMatter(page);
+    }
+  } finally {
+    syncing = false;
+  }
+  return { note: true, zotero: zoteroWritten };
+}
+
+/** The page the editor is showing, or undefined outside one. */
+async function currentPage(): Promise<string | undefined> {
+  try {
+    return await editor.getCurrentPage();
+  } catch {
+    return undefined;
+  }
+}
+
+/** The item an attachment hangs from, asked of the API. */
+async function parentOf(attachment?: string): Promise<string | undefined> {
+  if (!attachment) return undefined;
+  const { userId, apiKey, api } = await zoteroConfig();
+  if (!userId || !apiKey) return undefined;
+  const item = await getZoteroItem({ userId, apiKey, api }, attachment);
+  return item?.parentItem;
+}
+
+/** Syncs the reference note being opened, if that is what it is. */
+export async function syncReferenceNoteOnOpen(page: string) {
+  try {
+    await syncReferenceNote(page, { firstContactPush: false });
+  } catch (e: any) {
+    console.warn("[zotero] could not sync", page, e.message);
+  }
+}
+
+/** `Zotero: Sync Reference Notes` -- every reference note in the library. */
+export async function syncReferenceNotesCommand() {
+  const { syncKeywords } = await zoteroConfig();
+  if (syncKeywords === "off") {
+    await editor.flashNotification("zotero.syncKeywords is off", "error");
+    return;
+  }
+  const notes = await index.queryLuaObjects<ZoteroNoteObject>(
+    "zotero-note",
+    {},
+  );
+  let noteChanges = 0;
+  let zoteroChanges = 0;
+  for (const note of notes) {
+    const result = await syncReferenceNote(note.page, {
+      firstContactPush: true,
+    });
+    if (result?.note) noteChanges++;
+    if (result?.zotero) zoteroChanges++;
+  }
+  await editor.flashNotification(
+    `${notes.length} reference notes: ${noteChanges} updated here, ${zoteroChanges} in Zotero`,
+  );
 }

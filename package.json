@@ -23,6 +23,7 @@
     "./lib/bibtex": "./plug-api/lib/bibtex.ts",
     "./lib/md5": "./plug-api/lib/md5.ts",
     "./lib/zotero_api": "./plug-api/lib/zotero_api.ts",
+    "./lib/zotero_sync": "./plug-api/lib/zotero_sync.ts",
     "./lib/fuzzy": "./plug-api/lib/fuzzy.ts",
     "./lib/async": "./plug-api/lib/async.ts",
     "./lib/crypto": "./plug-api/lib/crypto.ts",

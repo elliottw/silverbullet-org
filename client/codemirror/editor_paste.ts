@@ -150,8 +150,6 @@ export function documentExtension(editor: Client) {
       return false;
     },
     drop: (event: DragEvent) => {
-      // TODO: This doesn't take into account the target cursor position,
-      // it just drops the document wherever the cursor was last.
       if (event.dataTransfer) {
         const payload = [...event.dataTransfer.files];
         if (!payload.length) {
@@ -160,8 +158,26 @@ export function documentExtension(editor: Client) {
         // Without this the browser falls through to its default action
         // (navigating to the dropped file)
         event.preventDefault();
+        // Where it was dropped, not where the cursor happened to be: the
+        // position is taken now, because what follows (a title prompt, a
+        // collection picker, an upload) takes seconds. Only a drop that
+        // actually landed on the text counts -- `posAtCoords` answers for a
+        // point outside it too, and the nearest position to a margin is the
+        // very start of the document, which is nobody's intention.
+        const box = editor.editorView.contentDOM.getBoundingClientRect();
+        const onText =
+          event.clientX >= box.left &&
+          event.clientX <= box.right &&
+          event.clientY >= box.top &&
+          event.clientY <= box.bottom;
+        const at = onText
+          ? editor.editorView.posAtCoords({
+              x: event.clientX,
+              y: event.clientY,
+            })
+          : null;
         safeRun(async () => {
-          await processFileTransfer(payload);
+          await processFileTransfer(payload, at ?? undefined);
         });
       }
     },
@@ -239,7 +255,7 @@ export function documentExtension(editor: Client) {
     },
   });
 
-  async function processFileTransfer(payload: File[]) {
+  async function processFileTransfer(payload: File[], at?: number) {
     const data = await payload[0].arrayBuffer();
     // data.byteLength > maximumDocumentSize;
     const fileData: UploadFile = {
@@ -247,7 +263,7 @@ export function documentExtension(editor: Client) {
       contentType: payload[0].type,
       content: new Uint8Array(data),
     };
-    await saveFile(fileData);
+    await saveFile(fileData, "", at);
   }
 
   async function processItemTransfer(payload: DataTransferItem[]) {
@@ -285,7 +301,13 @@ export function documentExtension(editor: Client) {
    * @param fallbackExtension extension, dot included, for a clipboard item,
    *   which arrives with no name to take one from
    */
-  async function saveFile(file: UploadFile, fallbackExtension = "") {
+  async function saveFile(
+    file: UploadFile,
+    fallbackExtension = "",
+    at?: number,
+  ) {
+    /** Where the link goes: the drop point, else wherever the cursor is. */
+    const insertAt = () => at ?? editor.editorView.state.selection.main.from;
     // The same setting the upload command honours; a paste is an upload.
     const configured = editor.config.get<unknown>(
       "maximumDocumentSize",
@@ -314,21 +336,17 @@ export function documentExtension(editor: Client) {
     if (!isImage && (await invoke("index.zoteroCanAddFiles", []))) {
       const name = file.name || `pasted-${Date.now()}${fallbackExtension}`;
       try {
-        const key: string = await invoke("index.zoteroAdd", [
+        // A document goes to Zotero and comes back as a link to its
+        // reference note -- see `addDocument`.
+        const link: string = await invoke("index.zoteroAddDocument", [
           name,
           file.contentType,
           file.content,
-        ]);
-        const link: string = await invoke("index.zoteroLinkForItem", [
-          key,
-          name,
           editor.currentPath(),
         ]);
         editor.editorView.dispatch({
-          changes: {
-            insert: link,
-            from: editor.editorView.state.selection.main.from,
-          },
+          changes: { insert: link, from: insertAt() },
+          selection: { anchor: insertAt() + link.length },
         });
       } catch (e: any) {
         if (!/Cancelled/.test(String(e.message))) {
@@ -366,12 +384,8 @@ export function documentExtension(editor: Client) {
       file.contentType.startsWith("image/"),
     );
     editor.editorView.dispatch({
-      changes: [
-        {
-          insert: documentMarkdown,
-          from: editor.editorView.state.selection.main.from,
-        },
-      ],
+      changes: [{ insert: documentMarkdown, from: insertAt() }],
+      selection: { anchor: insertAt() + documentMarkdown.length },
     });
   }
 }

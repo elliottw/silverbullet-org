@@ -264,3 +264,62 @@ export async function deleteZoteroItem(
   });
   return res.status === 204;
 }
+
+export type ZoteroItem = {
+  key: string;
+  version: number;
+  itemType: string;
+  title?: string;
+  parentItem?: string;
+  tags: { tag: string; type?: number }[];
+};
+
+/** One item, as the API has it. Undefined when there is no such item. */
+export async function getZoteroItem(
+  { userId, apiKey, api = zoteroApi }: ZoteroCredentials,
+  key: string,
+  fetchFn: typeof fetch = fetch,
+): Promise<ZoteroItem | undefined> {
+  const res = await fetchFn(`${api}/users/${userId}/items/${key}`, {
+    headers: { "Zotero-API-Key": apiKey, "Zotero-API-Version": "3" },
+  });
+  if (!res.ok) return undefined;
+  const body = (await res.json()) as { data?: Partial<ZoteroItem> };
+  const data = body.data ?? {};
+  return {
+    key: data.key ?? key,
+    version: data.version ?? Number(res.headers.get("Last-Modified-Version")),
+    itemType: data.itemType ?? "",
+    title: data.title,
+    parentItem: data.parentItem,
+    tags: data.tags ?? [],
+  };
+}
+
+/**
+ * Replaces an item's tags, leaving every other field as it is.
+ *
+ * A PATCH with `If-Unmodified-Since-Version` is how Zotero wants a partial
+ * write: the version is what makes it refuse rather than clobber a change
+ * made elsewhere since. Returns false on such a conflict, so a caller can
+ * re-read and decide.
+ */
+export async function setZoteroItemTags(
+  { userId, apiKey, api = zoteroApi }: ZoteroCredentials,
+  key: string,
+  tags: string[],
+  version: number,
+  fetchFn: typeof fetch = fetch,
+): Promise<boolean> {
+  const res = await fetchFn(`${api}/users/${userId}/items/${key}`, {
+    method: "PATCH",
+    headers: {
+      "Zotero-API-Key": apiKey,
+      "Zotero-API-Version": "3",
+      "Content-Type": "application/json",
+      "If-Unmodified-Since-Version": String(version),
+    },
+    body: JSON.stringify({ tags: tags.map((tag) => ({ tag })) }),
+  });
+  return res.ok;
+}

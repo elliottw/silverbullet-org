@@ -325,11 +325,24 @@ functions:
       name: "Zotero: Add File"
       requireMode: rw
       requireEditor: page
-  # Called by the paste and upload paths: a file into Zotero, a link back.
+  # Called by the paste and drop paths: a document into Zotero, a reference
+  # note for it, and the link to write where it was dropped.
+  zoteroAddDocument:
+    path: ./zotero.ts:addDocument
   zoteroAdd:
     path: ./zotero.ts:addFile
   zoteroCanAddFiles:
     path: ./zotero.ts:canAddFiles
+  # Keywords and tags, kept in step -- see `syncReferenceNote`.
+  zoteroSyncReferenceNotes:
+    path: ./zotero.ts:syncReferenceNotesCommand
+    command:
+      name: "Zotero: Sync Reference Notes"
+      requireMode: rw
+  zoteroSyncOnOpen:
+    path: ./zotero.ts:syncReferenceNoteOnOpen
+    events:
+      - editor:pageLoaded
   zoteroLinkForItem:
     path: ./zotero.ts:linkForItem
   # Called by the editor plug when a citation or zotero: link is followed.

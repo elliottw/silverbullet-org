@@ -1,4 +1,5 @@
 import { expect, gotoSilverBulletPage, test } from "./fixtures.ts";
+import { currentPage } from "./navigator-ui.ts";
 
 // A Better BibTeX export, as written: braces, escapes, storage paths.
 const BIB = String.raw`
@@ -170,16 +171,30 @@ import { createServer, type Server } from "node:http";
 
 const MOCK_PORT = 40000 + Math.floor(Math.random() * 20000);
 
-function mockZotero(): Promise<{
+function mockZotero(
+  options: {
+    port?: number;
+    /** Refuse a chunked upload, as the real file store does. */
+    strictUpload?: boolean;
+  } = {},
+): Promise<{
   server: Server;
   url: string;
   calls: string[];
   uploads: Buffer[];
   items: any[];
+  /** Item key → the tags the library holds, as PATCHes leave them. */
+  tags: Map<string, string[]>;
+  patches: string[];
 }> {
   const calls: string[] = [];
   const uploads: Buffer[] = [];
   const items: any[] = [];
+  const tags = new Map<string, string[]>(
+    Object.entries(options.seedTags ?? {}),
+  );
+  const versions = new Map<string, number>();
+  const patches: string[] = [];
   const server = createServer((req, res) => {
     const chunks: Buffer[] = [];
     req.on("data", (c) => chunks.push(c));
@@ -219,6 +234,45 @@ function mockZotero(): Promise<{
           }),
         );
       } else if (
+        req.method === "GET" &&
+        /^\/users\/42\/items\/[A-Z0-9]+$/.test(req.url ?? "")
+      ) {
+        // One item: its version, its tags, and -- for an attachment -- the
+        // item it hangs from.
+        const key = req.url!.split("/").pop()!;
+        const version = versions.get(key) ?? 1;
+        res.writeHead(200, {
+          "Content-Type": "application/json",
+          "Last-Modified-Version": String(version),
+        });
+        res.end(
+          JSON.stringify({
+            data: {
+              key,
+              version,
+              itemType: key === "MOCKKEY1" ? "attachment" : "document",
+              ...(key === "MOCKKEY1" ? { parentItem: "MOCKPAR1" } : {}),
+              tags: (tags.get(key) ?? []).map((tag) => ({ tag })),
+            },
+          }),
+        );
+      } else if (
+        req.method === "PATCH" &&
+        /^\/users\/42\/items\/[A-Z0-9]+$/.test(req.url ?? "")
+      ) {
+        const key = req.url!.split("/").pop()!;
+        patches.push(`${key} ${body.toString()}`);
+        const parsed = JSON.parse(body.toString()) as {
+          tags?: { tag: string }[];
+        };
+        tags.set(
+          key,
+          (parsed.tags ?? []).map((x) => x.tag),
+        );
+        versions.set(key, (versions.get(key) ?? 1) + 1);
+        res.writeHead(204);
+        res.end();
+      } else if (
         req.url === "/users/42/items/MOCKKEY1/file" &&
         body.toString().startsWith("md5=")
       ) {
@@ -236,8 +290,8 @@ function mockZotero(): Promise<{
         // S3's form upload refuses a chunked body; what arrives here must be
         // framed with a Content-Length, as the real file store demands.
         if (
-          !req.headers["content-length"] ||
-          req.headers["transfer-encoding"]
+          (options.strictUpload ?? true) &&
+          (!req.headers["content-length"] || req.headers["transfer-encoding"])
         ) {
           res.writeHead(411);
           res.end();
@@ -258,14 +312,17 @@ function mockZotero(): Promise<{
       }
     });
   });
+  const port = options.port ?? MOCK_PORT;
   return new Promise((resolve) =>
-    server.listen(MOCK_PORT, "127.0.0.1", () =>
+    server.listen(port, "127.0.0.1", () =>
       resolve({
         server,
-        url: `http://127.0.0.1:${MOCK_PORT}`,
+        url: `http://127.0.0.1:${port}`,
         calls,
         uploads,
         items,
+        tags,
+        patches,
       }),
     ),
   );
@@ -276,8 +333,8 @@ test.describe("Zotero: adding a file", () => {
   test.beforeAll(async () => {
     mock = await mockZotero();
   });
-  test.afterAll(() => {
-    mock.server.close();
+  test.afterAll(async () => {
+    await new Promise((r) => mock.server.close(r));
   });
 
   test.use({
@@ -333,6 +390,8 @@ test.describe("Zotero: adding a file", () => {
     await filter.fill("2026");
     await filter.press("Enter");
 
+    // What lands in the note is a link to the *reference note*, not to the
+    // file: a citation belongs in a note of its own.
     await expect
       .poll(
         () =>
@@ -343,7 +402,26 @@ test.describe("Zotero: adding a file", () => {
           ),
         { timeout: 30_000 },
       )
-      .toContain("[[zotero:MOCKKEY1][paper.pdf]]");
+      .toMatch(/\[\[denote:\d{8}T\d{6}\]\[Paper\]\]/);
+    // And that note is a Denote note carrying the reference keyword, the
+    // item's key, and a link to the file in Zotero.
+    const listing = await (
+      await fetch(`${sbServer.url}/.fs/`, {
+        headers: { "X-Sync-Mode": "true" },
+      })
+    ).text();
+    const noteName = (listing.match(/[^"]*--paper__bib\.org/) ?? [])[0];
+    expect(noteName).toBeTruthy();
+    const note = await (
+      await fetch(`${sbServer.url}/.fs/${encodeURI(noteName!)}`, {
+        headers: { "X-Sync-Mode": "true" },
+      })
+    ).text();
+    expect(note).toContain("#+title:      Paper");
+    expect(note).toContain("#+filetags:   :bib:");
+    expect(note).toContain("#+zotero:");
+    expect(note).toContain("MOCKPAR1");
+    expect(note).toContain("[[zotero:MOCKKEY1][paper.pdf]]");
     // A parent to cite, in the chosen collection, with the file as its child.
     const parent = mock.items.find((i) => i.itemType !== "attachment");
     const child = mock.items.find((i) => i.itemType === "attachment");
@@ -363,5 +441,227 @@ test.describe("Zotero: adding a file", () => {
     expect(mock.uploads.length).toEqual(1);
     expect(mock.uploads[0].toString()).toContain("%PDF-1.4 hello");
     expect(mock.uploads[0].toString().startsWith("--xx\r\n")).toBe(true);
+  });
+});
+
+// A bibliography that knows the item the mock creates, by its attachment
+// key, and gives it two Zotero tags.
+const SYNC_BIB = String.raw`
+@misc{paper2026,
+  title = {Paper},
+  keywords = {Landbank,RTK},
+  file = {/Users/elliott/Zotero/storage/MOCKKEY1/paper.pdf}
+}
+`;
+
+const SYNC_NOTE = `#+title:      Paper
+#+date:       [2026-10-04 Sun 10:00]
+#+filetags:   :bib:
+#+identifier: 20261004T100000
+#+zotero:     MOCKPAR1
+
+[[zotero:MOCKKEY1][paper.pdf]]
+`;
+
+const SYNC_PORT = MOCK_PORT + 1;
+
+test.describe("Zotero: keywords and tags in step", () => {
+  let mock: Awaited<ReturnType<typeof mockZotero>>;
+  test.beforeAll(async () => {
+    // The API and the export agree, as they do in a real library.
+    mock = await mockZotero({
+      port: SYNC_PORT,
+      seedTags: { MOCKPAR1: ["Landbank", "RTK"] },
+    });
+  });
+  test.afterAll(async () => {
+    await new Promise((r) => mock.server.close(r));
+  });
+
+  test.use({
+    spaceFiles: {
+      "index.md": "# Home\n",
+      "zotero.bib": SYNC_BIB,
+      "20261004T100000--paper__bib.org": SYNC_NOTE,
+      "CONFIG.md":
+        "```space-lua\n" +
+        `config.set("zotero", { username = "u", userId = "42", apiKey = "k", api = "http://127.0.0.1:${SYNC_PORT}" })\n` +
+        "```\n",
+    },
+  });
+
+  test("Zotero's tags arrive as keywords, and the citekey fills itself in", async ({
+    sbPage,
+    sbServer,
+  }) => {
+    const patchesBefore = mock.patches.length;
+    // Opening the note is what syncs it.
+    await gotoSilverBulletPage(
+      sbPage,
+      sbServer,
+      "20261004T100000--paper__bib.org",
+    );
+    await expect(sbPage.locator("#sb-editor .cm-content")).toContainText(
+      "paper.pdf",
+      { timeout: 20_000 },
+    );
+    // Keywords are part of the file name, so the page is renamed.
+    await expect(currentPage(sbPage)).toHaveValue(
+      "20261004T100000--paper__bib_landbank_rtk.org",
+      { timeout: 30_000 },
+    );
+    const text = await sbPage.evaluate(() =>
+      (globalThis as any).sbRuntime.evalLuaScript("return editor.getText()"),
+    );
+    expect(text).toContain("#+filetags:   :bib:landbank:rtk:");
+    // The citekey Better BibTeX minted, found through the attachment key.
+    expect(text).toContain("#+reference:  paper2026");
+    // And the shadow of what both sides agreed on.
+    expect(text).toMatch(/#\+zotero_tags:\s+landbank rtk/);
+    // Nothing was pushed: Zotero had both tags already.
+    expect(mock.patches.length).toBe(patchesBefore);
+  });
+
+  test("a keyword added here becomes a tag there", async ({
+    sbPage,
+    sbServer,
+  }) => {
+    const patchesBefore = mock.patches.length;
+    await gotoSilverBulletPage(
+      sbPage,
+      sbServer,
+      "20261004T100000--paper__bib.org",
+    );
+    await expect(currentPage(sbPage)).toHaveValue(
+      "20261004T100000--paper__bib_landbank_rtk.org",
+      { timeout: 30_000 },
+    );
+    // Add one, the way `Denote: Add Keywords` does.
+    await sbPage.evaluate(() =>
+      (globalThis as any).sbRuntime.evalLuaScript(`
+        local text = editor.getText()
+        editor.setText((string.gsub(text, "#%+filetags:   :bib:landbank:rtk:", "#+filetags:   :bib:landbank:rtk:solar", 1)))
+        editor.save()
+      `),
+    );
+    await expect(currentPage(sbPage)).toHaveValue(
+      "20261004T100000--paper__bib_landbank_rtk_solar.org",
+      { timeout: 30_000 },
+    );
+    // Sync pushes it to the item, keeping Zotero's own spelling of the rest.
+    await sbPage.evaluate(() =>
+      (globalThis as any).sbRuntime.evalLuaScript(
+        'editor.invokeCommand("Zotero: Sync Reference Notes")',
+      ),
+    );
+    await expect
+      .poll(() => mock.tags.get("MOCKPAR1") ?? [], { timeout: 30_000 })
+      .toEqual(["Landbank", "RTK", "solar"]);
+    expect(mock.patches.length).toBe(patchesBefore + 1);
+  });
+});
+
+const DROP_PORT = MOCK_PORT + 2;
+
+test.describe("Zotero: dropping a document", () => {
+  let mock: Awaited<ReturnType<typeof mockZotero>>;
+  test.beforeAll(async () => {
+    // Lenient about the upload framing: that is the Rust proxy's business and
+    // the suite above guards it; this is about what the drop leaves behind.
+    mock = await mockZotero({ port: DROP_PORT, strictUpload: false });
+  });
+  test.afterAll(async () => {
+    await new Promise((r) => mock.server.close(r));
+  });
+
+  test.use({
+    spaceFiles: {
+      "index.md": "# Home\n",
+      "Drop.org": "#+title: Drop\n\nFirst line here.\n\nSecond line here.\n",
+      "CONFIG.md":
+        "```space-lua\n" +
+        `config.set("zotero", { username = "u", userId = "42", apiKey = "k", api = "http://127.0.0.1:${DROP_PORT}" })\n` +
+        "```\n",
+    },
+  });
+
+  test("a dropped PDF becomes a reference note, linked where it was dropped", async ({
+    sbPage,
+    sbServer,
+  }) => {
+    await gotoSilverBulletPage(sbPage, sbServer, "Drop.org");
+    const editor = sbPage.locator("#sb-editor .cm-content");
+    await expect(editor).toContainText("Second line here.");
+    await sbPage.waitForTimeout(2500); // config to settle
+
+    // The cursor is parked at the very end; the drop happens on the *first*
+    // line, which is where the link has to land.
+    await editor.click();
+    await sbPage.keyboard.press("Control+End");
+    const target = await sbPage.evaluate(() => {
+      const el = [...document.querySelectorAll("#sb-editor .cm-line")].find(
+        (l) => l.textContent?.includes("First line here."),
+      )!;
+      const rect = el.getBoundingClientRect();
+      // The very start of that line.
+      return { x: rect.left + 1, y: rect.top + rect.height / 2 };
+    });
+    await sbPage.evaluate(({ x, y }) => {
+      const dt = new DataTransfer();
+      dt.items.add(
+        new File([new TextEncoder().encode("%PDF-1.4 dropped")], "paper.pdf", {
+          type: "application/pdf",
+        }),
+      );
+      document.querySelector("#sb-editor .cm-content")!.dispatchEvent(
+        new DragEvent("drop", {
+          dataTransfer: dt,
+          clientX: x,
+          clientY: y,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    }, target);
+
+    const prompt = sbPage
+      .locator(".sb-modal-box input, .sb-modal input")
+      .first();
+    await expect(prompt).toBeVisible({ timeout: 20_000 });
+    await prompt.press("Enter");
+    const filter = sbPage
+      .locator(".sb-modal-box input, .sb-modal input")
+      .first();
+    await expect(filter).toBeVisible({ timeout: 20_000 });
+    await filter.fill("2026");
+    await filter.press("Enter");
+
+    const text = await expect
+      .poll(
+        () =>
+          sbPage.evaluate(() =>
+            (globalThis as any).sbRuntime.evalLuaScript(
+              "return editor.getText()",
+            ),
+          ),
+        { timeout: 30_000 },
+      )
+      .toMatch(/\[\[denote:\d{8}T\d{6}\]\[Paper\]\]/)
+      .then(() =>
+        sbPage.evaluate(() =>
+          (globalThis as any).sbRuntime.evalLuaScript(
+            "return editor.getText()",
+          ),
+        ),
+      );
+    // On the first line, where it was dropped -- not at the end, where the
+    // cursor was.
+    const line = (text as string)
+      .split("\n")
+      .find((l: string) => l.includes("denote:"))!;
+    expect(line).toMatch(
+      /^\[\[denote:\d{8}T\d{6}\]\[Paper\]\]First line here\.$/,
+    );
+    expect((text as string).trimEnd().endsWith("Second line here.")).toBe(true);
   });
 });

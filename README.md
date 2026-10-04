@@ -64,6 +64,7 @@ and the arrow-key forms work everywhere.
 | `Zotero: Insert Citation` | `citar-insert-citation` |
 | `Zotero: New Reference Note` | `citar-denote-create-note` |
 | `Zotero: Add File` | — |
+| `Zotero: Sync Reference Notes` | — |
 | `Denote: Toggle Link Display` | `org-toggle-link-display` |
 | `Denote: Rename File from Front Matter` | `denote-rename-file-using-front-matter` |
 | `Denote: Rename` | `denote-rename-file` |
@@ -193,10 +194,53 @@ A clipboard image, having no name of its own, is named by its identifier alone.
 
 **A document is reference material, and lives in Zotero.** When Zotero is
 configured, a pasted, dropped or uploaded PDF (or anything else that is not an
-image) goes into your Zotero library through its Web API, and the note gets
-`[[zotero:KEY][name]]` at the cursor. The desktop app syncs it down like any
-other item; *Retrieve Metadata* there whenever you get to it. Without Zotero
+image) goes into your Zotero library through its Web API: you are asked for a
+title (the file's own name, or a PDF's embedded one, offered first) and a
+collection, exactly as the browser connector asks.
+
+What lands in the note is a link to a **reference note** for the item, written
+where you dropped it — not a link to the file. That is the point of it: a
+citation then has a note of its own to live in, which is where notes about a
+source belong, and `[[zotero:KEY]]` to the file sits in that note. The
+reference note is an ordinary Denote note carrying the `bib` keyword and
+
+    #+reference:  graham2004hackers    the citekey, once BBT has minted one
+    #+zotero:     P6F9ZMNS            the item itself
+    #+zotero_tags: landbank rtk        what note and library last agreed on
+
+A moments-old item has no citekey yet — Better BibTeX writes one on its next
+export — so the note records the item key and fills `#+reference:` in as soon
+as the export catches up. Set `zotero.referenceNoteOnAdd = false` to go back to
+linking the file directly. The desktop app syncs the file down like any other
+item; *Retrieve Metadata* there whenever you get to it. Without Zotero
 configured, documents are saved beside the note like images.
+
+### Keywords and tags, kept in step
+
+A reference note's keywords and its Zotero item's tags are the same list in
+two places, so they are reconciled rather than copied: `#+zotero_tags:` records
+what the two last agreed on, which is what tells a keyword you added here from
+a tag that was removed there. Opening a reference note syncs it; `Zotero: Sync
+Reference Notes` does the library.
+
+| What happened | What follows |
+|---|---|
+| a tag added in Zotero | it arrives as a keyword (and the file is renamed, since keywords live in the name) |
+| a tag removed in Zotero | the keyword goes |
+| a keyword added here | it is pushed up as a tag |
+| a keyword removed here | the tag goes |
+| a keyword Zotero never had | it stays local — only what both sides hold is recorded as agreed |
+
+Tags come from the **API**, not from the `.bib`: the export lags a change by
+however long until BBT next writes it, and a tag pushed a moment ago would
+read back as one Zotero had dropped. The export stays the authority on the
+citekey, which is BBT's to mint.
+
+A note that has never been synced does not push: its keywords predate the
+arrangement, and sending a library's worth of them to Zotero unasked is not
+this feature's business. Run `Zotero: Sync Reference Notes` to do that
+deliberately. `zotero.syncKeywords` is `both`, `fromZotero` (never write to
+the library) or `off`.
 
 ### Citing
 
@@ -235,6 +279,8 @@ config.set("zotero", {
   apiKey = "…",               -- write + file access; needed only for adding
   bibliography = "zotero.bib",
   referenceKeyword = "bib",
+  referenceNoteOnAdd = true,  -- a dropped document gets a reference note
+  syncKeywords = "both",      -- or "fromZotero", or "off"
 })
 ```
 
