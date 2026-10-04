@@ -41,10 +41,18 @@ import {
   createParentItem,
   getZoteroItem,
   listCollections,
+  listDeletedZoteroItems,
+  listZoteroItems,
   setZoteroItemTags,
   uploadToZotero,
   type ZoteroCredentials,
 } from "@silverbulletmd/silverbullet/lib/zotero_api";
+import {
+  detectStoragePath,
+  renderBibtex,
+  zoteroItemToEntry,
+  type ZoteroApiItem,
+} from "@silverbulletmd/silverbullet/lib/zotero_bib";
 import {
   mergeTags,
   slugifyTag,
@@ -77,7 +85,25 @@ export type ZoteroObject = ObjectValue<{
   /** Attachment item keys, the ones a zotero.org URL takes. */
   attachments: string[];
   attachmentNames: string[];
+  /** The Zotero item key, when the library came from the API. */
+  item?: string;
+  /** Bibliography fields, for writing the `.bib` back out. */
+  fields?: Record<string, string>;
 }>;
+
+/** Where the library sync got to, so the next one can be incremental. */
+export type ZoteroSyncObject = ObjectValue<{
+  tag: "zotero-sync";
+  /** The library version the index is current with. */
+  version: number;
+  /** Whether a full pass has ever completed; an incremental sync needs one. */
+  complete: boolean;
+  items: number;
+  at: string;
+}>;
+
+/** The pseudo-file API-sourced items are indexed under. */
+const libraryOwner = "zotero-library";
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -109,6 +135,14 @@ export type ZoteroConfig = {
    * library), or `off`.
    */
   syncKeywords: "both" | "fromZotero" | "off";
+  /**
+   * Where Zotero keeps its files on the machine that reads the bibliography,
+   * for the `file` lines `citar-file-open` follows. Learned from a
+   * bibliography already in the space when unset.
+   */
+  storagePath?: string;
+  /** How stale the library may get before a page load refreshes it, in minutes. */
+  syncEvery: number;
 };
 
 export async function zoteroConfig(): Promise<ZoteroConfig> {
@@ -123,6 +157,8 @@ export async function zoteroConfig(): Promise<ZoteroConfig> {
     referenceKeyword: cfg.referenceKeyword ?? "bib",
     referenceNoteOnAdd: cfg.referenceNoteOnAdd ?? true,
     syncKeywords: cfg.syncKeywords ?? "both",
+    storagePath: cfg.storagePath,
+    syncEvery: cfg.syncEvery ?? 15,
   };
 }
 
@@ -149,32 +185,83 @@ export async function bibliography(): Promise<BibEntry[]> {
   return entries;
 }
 
+/**
+ * Every item the library holds, as bibliography entries.
+ *
+ * The index is the library when the API has been synced into it -- fresh,
+ * with tags and item keys the export does not carry. The parsed `.bib` is the
+ * fallback: a device with no API key, or one that has never synced, still
+ * reads citations and titles from the file.
+ */
+export async function entries(): Promise<BibEntry[]> {
+  const objects = await index.queryLuaObjects<ZoteroObject>("zotero", {});
+  const fromApi = objects.filter((o) => o.item);
+  if (fromApi.length === 0) {
+    return bibliography();
+  }
+  return fromApi.map(objectToEntry);
+}
+
+function objectToEntry(o: ZoteroObject): BibEntry {
+  return {
+    citekey: o.citekey,
+    type: o.type,
+    title: o.title,
+    authors: o.authors ?? [],
+    ...(o.year ? { year: o.year } : {}),
+    keywords: o.keywords ?? [],
+    attachments: (o.attachments ?? []).map((key, i) => ({
+      key,
+      name: (o.attachmentNames ?? [])[i] ?? key,
+    })),
+    fields: o.fields ?? {},
+  };
+}
+
 export async function entryByCitekey(
   citekey: string,
 ): Promise<BibEntry | undefined> {
-  return (await bibliography()).find((e) => e.citekey === citekey);
+  return (await entries()).find((e) => e.citekey === citekey);
 }
 
 /** The entry owning an attachment key, for `[[zotero:KEY]]` links. */
 export async function entryByItemKey(
   key: string,
 ): Promise<BibEntry | undefined> {
-  return (await bibliography()).find((e) =>
+  return (await entries()).find((e) =>
     e.attachments.some((a) => a.key === key),
   );
 }
 
-/** Indexes the bibliography whenever the file is (re)indexed as a document. */
+/** The item key a citekey names, for writing tags back. */
+export async function itemKeyForCitekey(
+  citekey: string,
+): Promise<string | undefined> {
+  const objects = await index.queryLuaObjects<ZoteroObject>("zotero", {});
+  return objects.find((o) => o.citekey === citekey)?.item;
+}
+
+/**
+ * Indexes the bibliography whenever the file is (re)indexed as a document.
+ *
+ * Only when the API is not the source: with a synced library the file is
+ * SilverBullet's own output, and re-indexing it would replace items that
+ * carry their Zotero key and fields with poorer copies parsed back out of
+ * what we just wrote.
+ */
 export async function indexBibliography(name: string) {
   const { bibliography: bibName } = await zoteroConfig();
   if (name !== bibName) {
     return;
   }
   cache = undefined;
-  const entries = await bibliography();
+  if (await librarySynced()) {
+    return;
+  }
+  const parsed = await bibliography();
   await index.indexObjects<ZoteroObject>(
     name,
-    entries.map((e) => ({
+    parsed.map((e) => ({
       ref: e.citekey,
       tag: "zotero",
       citekey: e.citekey,
@@ -186,8 +273,27 @@ export async function indexBibliography(name: string) {
       keywords: e.keywords,
       attachments: e.attachments.map((a) => a.key),
       attachmentNames: e.attachments.map((a) => a.name),
+      fields: e.fields,
     })),
   );
+}
+
+/**
+ * Whether the API is the library on this device: a full sync has completed
+ * *and* found something. An empty answer -- a key without access, the wrong
+ * user id -- must not take a hand-kept bibliography out of service.
+ */
+async function librarySynced(): Promise<boolean> {
+  const state = await syncState();
+  return !!state?.complete && state.items > 0;
+}
+
+async function syncState(): Promise<ZoteroSyncObject | undefined> {
+  const states = await index.queryLuaObjects<ZoteroSyncObject>(
+    "zotero-sync",
+    {},
+  );
+  return states[0];
 }
 
 // ---------------------------------------------------------------------------
@@ -546,11 +652,21 @@ export async function addDocument(
   if (!referenceNoteOnAdd) {
     return linkForItem(attachment, name, page);
   }
+  // The library gained an item: sync it in, so the note's citekey -- which
+  // Zotero mints -- is there to be written rather than filled in later.
+  let citekey: string | undefined;
+  try {
+    await syncLibrary();
+    citekey = (await entryByItemKey(attachment))?.citekey;
+  } catch (e: any) {
+    console.warn("[zotero] could not sync after adding", e.message);
+  }
   const note = await createReferenceNote({
     title,
     item: parent,
     attachment,
     fileName: name,
+    citekey,
   });
   await editor.flashNotification(`Reference note: ${title}`);
   return linkFor(linkSyntaxFor(page), `denote:${note.identifier}`, title);
@@ -805,15 +921,20 @@ export async function syncReferenceNote(
     return { note: false, zotero: false };
   }
 
-  // Zotero's own tags, from the API: the bibliography is Better BibTeX's
-  // export and lags a change by however long until its next write, so a tag
-  // pushed a moment ago would read back as one Zotero had dropped. The export
-  // stays the authority on the citekey, which is BBT's to mint.
-  const item = itemOf(text) ?? (await parentOf(attachment));
+  // Zotero's own tags. With the library synced from the API they are in the
+  // index already, fresh, and no request is needed to read them; a push still
+  // asks for the item, because writing needs its version.
+  const item =
+    itemOf(text) ??
+    (await itemKeyForCitekey(entry.citekey)) ??
+    (await parentOf(attachment));
   const creds: ZoteroCredentials | undefined =
     userId && apiKey ? { userId, apiKey, api } : undefined;
-  const current = creds && item ? await getZoteroItem(creds, item) : undefined;
-  const zoteroTags = current ? current.tags.map((t) => t.tag) : entry.keywords;
+  const current =
+    canPush && creds && item ? await getZoteroItem(creds, item) : undefined;
+  // The item answers for itself when we had to ask it anyway; otherwise the
+  // index, which a synced library keeps current.
+  const zoteroTags = current ? current.tags.map((x) => x.tag) : entry.keywords;
   const push = canPush && !!current;
   const merged = mergeTags({ noteKeywords, zoteroTags, shadow, push });
 
@@ -918,4 +1039,261 @@ export async function syncReferenceNotesCommand() {
   await editor.flashNotification(
     `${notes.length} reference notes: ${noteChanges} updated here, ${zoteroChanges} in Zotero`,
   );
+}
+
+// ---------------------------------------------------------------------------
+// The library, from the API
+// ---------------------------------------------------------------------------
+
+/** Guards against two syncs at once -- a page load and a command, say. */
+let synchronising = false;
+
+/**
+ * Brings the index up to date with the Zotero library, and writes the
+ * bibliography out.
+ *
+ * Zotero versions its library, so this is one request per change rather than
+ * a download of everything: the first pass pages through the whole library,
+ * every later one asks only for what changed since the version the index
+ * holds. Items the API lists without a citekey (Zotero's `citationKey`, which
+ * is Better BibTeX's) are kept in the index but left out of the `.bib`: they
+ * cannot be cited.
+ *
+ * The file is only written after a pass that left the index complete, so a
+ * device that has just arrived cannot truncate a bibliography it has not
+ * finished reading.
+ */
+export async function syncLibrary(
+  options: { full?: boolean; force?: boolean } = {},
+): Promise<{ items: number; version: number; wrote: boolean } | undefined> {
+  const { userId, apiKey, api, bibliography: bibName } = await zoteroConfig();
+  if (!userId || !apiKey || synchronising) return;
+  const creds: ZoteroCredentials = { userId, apiKey, api };
+  synchronising = true;
+  try {
+    const state = await syncState();
+    const incremental = !options.full && !!state?.complete;
+    const since = incremental ? state!.version : undefined;
+
+    // What the index already holds, by item key, so an incremental pass can
+    // merge rather than replace.
+    const held = new Map<string, ZoteroObject>();
+    for (const o of await index.queryLuaObjects<ZoteroObject>("zotero", {})) {
+      if (o.item) held.set(o.item, o);
+    }
+    const items = new Map<string, ZoteroApiItem>();
+    const children = new Map<string, ZoteroApiItem[]>();
+    let version = state?.version ?? 0;
+    let total: number | undefined;
+    for (let start = 0; ; start += 100) {
+      const page = await listZoteroItems(creds, { since, start, limit: 100 });
+      version = Math.max(version, page.version);
+      total ??= page.total;
+      for (const raw of page.items) {
+        const item = raw as unknown as ZoteroApiItem;
+        if (!item.key) continue;
+        if (item.parentItem) {
+          children.set(item.parentItem, [
+            ...(children.get(item.parentItem) ?? []),
+            item,
+          ]);
+        } else {
+          items.set(item.key, item);
+        }
+      }
+      if (page.items.length < 100) break;
+    }
+
+    // An attachment that changed on its own: its parent has to be rewritten
+    // with it, and an incremental pass did not list the parent.
+    const orphanParents = [...children.keys()].filter((k) => !items.has(k));
+    for (const key of orphanParents) {
+      const parent = await getZoteroItem(creds, key);
+      if (!parent) continue;
+      const kept = held.get(key);
+      items.set(key, {
+        key,
+        itemType: parent.itemType,
+        citationKey: kept?.citekey,
+        title: parent.title,
+        tags: parent.tags,
+      } as ZoteroApiItem);
+    }
+
+    const storagePath = await storagePathFor(bibName);
+    const updated: ZoteroObject[] = [];
+    for (const [key, item] of items) {
+      const kids = children.get(key) ?? [];
+      // An incremental pass lists a parent without its unchanged children, so
+      // the attachments already on record stand unless new ones arrived.
+      const kept = held.get(key);
+      const entry = zoteroItemToEntry(item, kids, storagePath);
+      const attachments: { key: string; name: string }[] = kids.length
+        ? entry.attachments
+        : (kept?.attachments ?? []).map((k: string, i: number) => ({
+            key: k,
+            name: (kept?.attachmentNames ?? [])[i] ?? k,
+          }));
+      if (!kids.length && attachments.length) {
+        entry.attachments = attachments;
+        entry.fields.file = attachments
+          .map(
+            (a: { key: string; name: string }) =>
+              `${storagePath}/${a.key}/${a.name}`,
+          )
+          .join(";");
+      }
+      updated.push({
+        ref: item.key,
+        tag: "zotero",
+        item: item.key,
+        citekey: entry.citekey,
+        type: entry.type,
+        title: entry.title,
+        authors: entry.authors,
+        ...(entry.year ? { year: entry.year } : {}),
+        short: shortCitation(entry),
+        keywords: entry.keywords,
+        attachments: entry.attachments.map(
+          (a: { key: string; name: string }) => a.key,
+        ),
+        attachmentNames: entry.attachments.map(
+          (a: { key: string; name: string }) => a.name,
+        ),
+        fields: entry.fields,
+      });
+    }
+
+    const deleted =
+      since !== undefined ? await listDeletedZoteroItems(creds, since) : [];
+    const byKey = new Map(held);
+    for (const key of deleted) byKey.delete(key);
+    for (const o of updated) byKey.set(o.item!, o);
+
+    // Everything in one batch under a name of its own: the bibliography file
+    // is indexed separately, and must not clear these when it is written.
+    await index.indexObjects<ZoteroObject | ZoteroSyncObject>(libraryOwner, [
+      ...byKey.values(),
+      {
+        ref: "library",
+        tag: "zotero-sync",
+        version,
+        complete: true,
+        items: byKey.size,
+        at: new Date().toISOString(),
+      },
+    ]);
+    cache = undefined;
+
+    // The expected count, when the API told us one, is the guard against
+    // writing a bibliography out of a half-read library.
+    const consistent =
+      incremental || total === undefined || byKey.size >= total;
+    let wrote = false;
+    if (consistent) {
+      wrote = await writeBibliography([...byKey.values()].map(objectToEntry), {
+        force: options.force,
+      });
+    }
+    return { items: byKey.size, version, wrote };
+  } finally {
+    synchronising = false;
+  }
+}
+
+/** Where the `file` lines should point, configured or learned from the file. */
+async function storagePathFor(bibName: string): Promise<string> {
+  const { storagePath } = await zoteroConfig();
+  if (storagePath) return storagePath;
+  try {
+    const text = new TextDecoder().decode(await space.readDocument(bibName));
+    const found = detectStoragePath(text);
+    if (found) return found;
+  } catch {
+    // No bibliography yet.
+  }
+  return "~/Zotero/storage";
+}
+
+/**
+ * Writes the bibliography, and says whether it changed.
+ *
+ * It refuses to make the file dramatically smaller than it is. The library is
+ * read over a network from an index that a device may hold only part of, and
+ * the failure to avoid at all costs is a sync that answers with little or
+ * nothing and takes a bibliography -- the file Emacs cites from -- with it.
+ * A deletion in Zotero of more than a tenth of the library is rare enough to
+ * be worth confirming with `Zotero: Resync Library`, which bypasses this.
+ */
+async function writeBibliography(
+  list: BibEntry[],
+  options: { force?: boolean } = {},
+): Promise<boolean> {
+  const { bibliography: bibName } = await zoteroConfig();
+  const rendered = renderBibtex(list);
+  let current = "";
+  try {
+    current = new TextDecoder().decode(await space.readDocument(bibName));
+  } catch {
+    // Not there yet.
+  }
+  if (current === rendered) return false;
+  const had = (current.match(/^@/gm) ?? []).length;
+  const has = (rendered.match(/^@/gm) ?? []).length;
+  if (!options.force && had > 0 && has < had * 0.9) {
+    console.warn(
+      `[zotero] not writing ${bibName}: ${has} entries would replace ${had}`,
+    );
+    return false;
+  }
+  await space.writeDocument(bibName, new TextEncoder().encode(rendered));
+  return true;
+}
+
+/** `Zotero: Sync Library` -- the whole library, on demand. */
+export async function syncLibraryCommand() {
+  if (!(await canAddFiles())) {
+    await editor.flashNotification(
+      "Set zotero.userId and zotero.apiKey to sync the library",
+      "error",
+    );
+    return;
+  }
+  await editor.flashNotification("Syncing the Zotero library…");
+  const result = await syncLibrary();
+  if (!result) {
+    await editor.flashNotification("A sync is already running", "error");
+    return;
+  }
+  await editor.flashNotification(
+    `${result.items} items, library version ${result.version}` +
+      (result.wrote ? "; bibliography written" : ""),
+  );
+}
+
+/** `Zotero: Resync Library` -- from scratch, when the index looks wrong. */
+export async function resyncLibraryCommand() {
+  await editor.flashNotification("Reading the whole Zotero library…");
+  const result = await syncLibrary({ full: true, force: true });
+  await editor.flashNotification(
+    result ? `${result.items} items` : "A sync is already running",
+  );
+}
+
+/**
+ * Keeps the library fresh without a timer: a page load syncs it when it is
+ * older than `zotero.syncEvery` minutes. Page loads are frequent and a
+ * no-change sync is one request.
+ */
+export async function syncLibraryWhenStale() {
+  const { userId, apiKey, syncEvery } = await zoteroConfig();
+  if (!userId || !apiKey) return;
+  const state = await syncState();
+  const age = state?.at ? Date.now() - new Date(state.at).getTime() : Infinity;
+  if (age < syncEvery * 60_000) return;
+  try {
+    await syncLibrary();
+  } catch (e: any) {
+    console.warn("[zotero] could not sync the library", e.message);
+  }
 }

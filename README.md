@@ -65,6 +65,7 @@ and the arrow-key forms work everywhere.
 | `Zotero: New Reference Note` | `citar-denote-create-note` |
 | `Zotero: Add File` | — |
 | `Zotero: Sync Reference Notes` | — |
+| `Zotero: Sync Library`, `Zotero: Resync Library` | — |
 | `Denote: Toggle Link Display` | `org-toggle-link-display` |
 | `Denote: Rename File from Front Matter` | `denote-rename-file-using-front-matter` |
 | `Denote: Rename` | `denote-rename-file` |
@@ -192,28 +193,65 @@ beside the note under a Denote name, with no prompt, and shown inline:
 `denote-rename-file` renames any file, note or not — the scheme *is* the name.
 A clipboard image, having no name of its own, is named by its identifier alone.
 
-**A document is reference material, and lives in Zotero.** When Zotero is
-configured, a pasted, dropped or uploaded PDF (or anything else that is not an
-image) goes into your Zotero library through its Web API: you are asked for a
-title (the file's own name, or a PDF's embedded one, offered first) and a
-collection, exactly as the browser connector asks.
+**A document is reference material, and lives in Zotero.** A pasted, dropped
+or uploaded PDF — anything that is not an image — goes into the Zotero library
+through its Web API: you are asked for a title (the file's own name, or a PDF's
+embedded one, offered first) and a collection, exactly as the browser connector
+asks. Without Zotero configured, documents are saved beside the note like
+images.
 
 What lands in the note is a link to a **reference note** for the item, written
 where you dropped it — not a link to the file. That is the point of it: a
 citation then has a note of its own to live in, which is where notes about a
-source belong, and `[[zotero:KEY]]` to the file sits in that note. The
-reference note is an ordinary Denote note carrying the `bib` keyword and
+source belong. The reference note is an ordinary Denote note carrying the `bib`
+keyword, a link to the file, and three lines:
 
-    #+reference:  graham2004hackers    the citekey, once BBT has minted one
-    #+zotero:     P6F9ZMNS            the item itself
+    #+reference:   graham2004hackers   the citekey, which is Zotero's
+    #+zotero:      P6F9ZMNS            the item itself
     #+zotero_tags: landbank rtk        what note and library last agreed on
 
-A moments-old item has no citekey yet — Better BibTeX writes one on its next
-export — so the note records the item key and fills `#+reference:` in as soon
-as the export catches up. Set `zotero.referenceNoteOnAdd = false` to go back to
-linking the file directly. The desktop app syncs the file down like any other
-item; *Retrieve Metadata* there whenever you get to it. Without Zotero
-configured, documents are saved beside the note like images.
+`zotero.referenceNoteOnAdd = false` goes back to linking the file directly.
+
+### The library, and who owns the bibliography
+
+**SilverBullet keeps the library in its own index, synced from the Zotero
+API, and writes `zotero.bib` from it.** Turn Better BibTeX's *Keep updated*
+export off: there is one writer, and this is it.
+
+That inversion is the point of the arrangement. BBT's export only refreshes
+while a Mac is awake with Zotero running, so a PDF dropped from a phone was
+not citable in Emacs until the laptop next ran. Written from the API by
+whichever device is open, the file is current within a minute of the drop.
+
+What comes from where:
+
+| | Source | Why |
+|---|---|---|
+| citekeys | Zotero's `citationKey` (Better BibTeX's own) | keys must not change: SilverBullet never invents one |
+| titles, authors, dates, tags | the API | fresh, and tags arrive without a per-note request |
+| item and attachment keys | the API | the export does not carry them |
+| `file` paths in the `.bib` | the storage path already in your bibliography | it is the one `citar-file-open` on that machine opens files with |
+
+Zotero versions its library, so keeping up is cheap: the first pass reads
+everything (about 30 requests for 3,000 items), and every later one asks only
+what changed since the version the index holds — one request when nothing has.
+A page load syncs when the index is older than `zotero.syncEvery` minutes,
+adding a document syncs immediately so its citekey is there to write into the
+reference note, and `Zotero: Sync Library` does it on demand. `Zotero: Resync
+Library` reads the whole library again.
+
+The file is only written after a pass that read the library completely, so a
+device that has just arrived cannot truncate a bibliography it has not finished
+reading. An item Zotero has no citekey for stays in the index but is left out
+of the file: it cannot be cited.
+
+Two things to know. A device with **no API key** reads the `.bib` instead —
+citations, titles and the pickers all still work, which is what keeps a
+locked-down phone or an offline laptop useful. And the writer here is modest:
+it escapes what TeX needs escaped and no more. For LaTeX-grade output (name
+transliteration, journal abbreviations, pinned keys) Better BibTeX's own
+export is better than anything in this repository — turn it back on for that,
+pointed somewhere else.
 
 ### Keywords and tags, kept in step
 
@@ -231,11 +269,6 @@ Reference Notes` does the library.
 | a keyword removed here | the tag goes |
 | a keyword Zotero never had | it stays local — only what both sides hold is recorded as agreed |
 
-Tags come from the **API**, not from the `.bib`: the export lags a change by
-however long until BBT next writes it, and a tag pushed a moment ago would
-read back as one Zotero had dropped. The export stays the authority on the
-citekey, which is BBT's to mint.
-
 A note that has never been synced does not push: its keywords predate the
 arrangement, and sending a library's worth of them to Zotero unasked is not
 this feature's business. Run `Zotero: Sync Reference Notes` to do that
@@ -243,12 +276,6 @@ deliberately. `zotero.syncKeywords` is `both`, `fromZotero` (never write to
 the library) or `off`.
 
 ### Citing
-
-The bibliography is Better BibTeX's export of the Zotero library, a `.bib`
-kept in the space (`zotero.bibliography`, default `zotero.bib`) — set BBT's
-*Keep updated* export to point there and it stays current. Every `file` line
-in it names an attachment's storage key, which is exactly what a zotero.org
-URL takes, so that one text file joins citekey to title, year and file.
 
 | Written | Shown | Opens |
 |---|---|---|
@@ -263,12 +290,12 @@ citations there instead — a per-device preference, since the same space is
 read from a Mac with Zotero and a work machine without one. An item with no
 file only opens in the app.
 
-`Zotero: Insert Citation` (also a row in `Alt-i`) picks from the
-bibliography. `Zotero: New Reference Note` creates a Denote note about an
-item, carrying `#+reference: citekey` and the `bib` keyword — the
-`citar-denote` convention, so `citar-denote-open-note` in Emacs finds the same
-note. Citations and `#+reference:` lines are indexed as relations, which is
-what gives a reference note its "cited in" list.
+`Zotero: Insert Citation` (also a row in `Alt-i`) picks from the library.
+`Zotero: New Reference Note` creates a Denote note about an item, carrying
+`#+reference: citekey` and the `bib` keyword — the `citar-denote` convention,
+so `citar-denote-open-note` in Emacs finds the same note. Citations and
+`#+reference:` lines are indexed as relations, which is what gives a reference
+note its "cited in" list.
 
 ### Configuration
 
@@ -276,20 +303,38 @@ what gives a reference note its "cited in" list.
 config.set("zotero", {
   username = "yourname",      -- for zotero.org URLs
   userId = "1234567",         -- from zotero.org/settings/keys
-  apiKey = "…",               -- write + file access; needed only for adding
-  bibliography = "zotero.bib",
+  apiKey = "…",               -- write + file access
+  bibliography = "zotero.bib",-- written from the API; one writer, this one
   referenceKeyword = "bib",
   referenceNoteOnAdd = true,  -- a dropped document gets a reference note
   syncKeywords = "both",      -- or "fromZotero", or "off"
+  syncEvery = 15,             -- minutes before a page load refreshes the library
+  -- storagePath = "/Users/you/Zotero/storage",  -- learned from the .bib if unset
 })
 ```
 
-On the Emacs side, `[cite:@key]` is org-cite, which `citar` reads from the
-same `.bib`; a `zotero:` link wants one line:
+With no `userId`/`apiKey` the fork reads the `.bib` and nothing else: no
+syncing, no adding, no tag reconciliation. That is a supported way to run it.
+
+On the Emacs side nothing changes — `citar` reads the same file it always did,
+from `citar-bibliography`. A `zotero:` link wants one line:
 
 ```elisp
 (org-link-set-parameters "zotero" :follow
   (lambda (key) (browse-url (concat "zotero://select/library/items/" key))))
+```
+
+To open the PDF in Emacs instead of handing the item to Zotero, follow the
+key into Zotero's storage directory:
+
+```elisp
+(org-link-set-parameters "zotero" :follow
+  (lambda (key)
+    (let ((file (car (file-expand-wildcards
+                      (expand-file-name (concat key "/*")
+                                        "~/Zotero/storage")))))
+      (if file (find-file file)
+        (browse-url (concat "zotero://select/library/items/" key))))))
 ```
 
 ## A flat library, and where the structure went

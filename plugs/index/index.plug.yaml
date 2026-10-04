@@ -333,6 +333,22 @@ functions:
     path: ./zotero.ts:addFile
   zoteroCanAddFiles:
     path: ./zotero.ts:canAddFiles
+  # The library itself, from the API -- see `syncLibrary`. SilverBullet owns
+  # the bibliography: it writes `zotero.bib` from what the API says, so Emacs
+  # (citar, org-cite) reads a file that is current even for an item added from
+  # a phone.
+  zoteroSyncLibrary:
+    path: ./zotero.ts:syncLibraryCommand
+    command:
+      name: "Zotero: Sync Library"
+  zoteroResyncLibrary:
+    path: ./zotero.ts:resyncLibraryCommand
+    command:
+      name: "Zotero: Resync Library"
+  zoteroSyncLibraryWhenStale:
+    path: ./zotero.ts:syncLibraryWhenStale
+    events:
+      - editor:pageLoaded
   # Keywords and tags, kept in step -- see `syncReferenceNote`.
   zoteroSyncReferenceNotes:
     path: ./zotero.ts:syncReferenceNotesCommand

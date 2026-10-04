@@ -176,6 +176,12 @@ function mockZotero(
     port?: number;
     /** Refuse a chunked upload, as the real file store does. */
     strictUpload?: boolean;
+    /** Tags the library already holds, by item key. */
+    seedTags?: Record<string, string[]>;
+    /** The items a library listing answers with. */
+    library?: Record<string, unknown>[];
+    libraryVersion?: number;
+    deleted?: string[];
   } = {},
 ): Promise<{
   server: Server;
@@ -233,6 +239,41 @@ function mockZotero(
             },
           }),
         );
+      } else if (
+        req.method === "GET" &&
+        req.url?.startsWith("/users/42/items?")
+      ) {
+        // The library, as a versioned listing. `since` makes it incremental;
+        // this mock answers the same items either way, which is enough to
+        // prove the pass runs and writes.
+        const library = options.library ?? [];
+        res.writeHead(200, {
+          "Content-Type": "application/json",
+          "Last-Modified-Version": String(options.libraryVersion ?? 7),
+          "Total-Results": String(
+            library.filter((i: any) => !i.parentItem).length,
+          ),
+        });
+        res.end(
+          JSON.stringify(
+            library.map((data: any) => ({
+              key: data.key,
+              data: {
+                ...data,
+                tags:
+                  tags.get(data.key)?.map((tag) => ({ tag })) ??
+                  data.tags ??
+                  [],
+              },
+            })),
+          ),
+        );
+      } else if (
+        req.method === "GET" &&
+        req.url?.startsWith("/users/42/deleted")
+      ) {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ items: options.deleted ?? [] }));
       } else if (
         req.method === "GET" &&
         /^\/users\/42\/items\/[A-Z0-9]+$/.test(req.url ?? "")
@@ -663,5 +704,203 @@ test.describe("Zotero: dropping a document", () => {
       /^\[\[denote:\d{8}T\d{6}\]\[Paper\]\]First line here\.$/,
     );
     expect((text as string).trimEnd().endsWith("Second line here.")).toBe(true);
+  });
+});
+
+const OWN_PORT = MOCK_PORT + 3;
+
+/** A library as the API hands it over: an item, its attachment, a second item. */
+const LIBRARY = [
+  {
+    key: "ITEMAAAA",
+    version: 5,
+    itemType: "journalArticle",
+    citationKey: "graham2004hackers",
+    title: "Hackers & Painters",
+    creators: [
+      { creatorType: "author", firstName: "Paul", lastName: "Graham" },
+    ],
+    date: "2004-05-01",
+    publicationTitle: "Some Journal",
+    tags: [{ tag: "essays" }],
+  },
+  {
+    key: "ATTACHAA",
+    version: 5,
+    itemType: "attachment",
+    parentItem: "ITEMAAAA",
+    filename: "hackers.pdf",
+    linkMode: "imported_file",
+  },
+  {
+    key: "ITEMBBBB",
+    version: 6,
+    itemType: "document",
+    citationKey: "nokeyitem2026",
+    title: "A Report",
+    tags: [],
+  },
+  // No citekey: kept in the index, left out of the file, since it cannot be
+  // cited.
+  {
+    key: "ITEMCCCC",
+    version: 6,
+    itemType: "document",
+    title: "Uncitable",
+  },
+];
+
+test.describe("Zotero: SilverBullet owns the bibliography", () => {
+  let mock: Awaited<ReturnType<typeof mockZotero>>;
+  test.beforeAll(async () => {
+    mock = await mockZotero({
+      port: OWN_PORT,
+      library: LIBRARY,
+      libraryVersion: 11,
+    });
+  });
+  test.afterAll(async () => {
+    await new Promise((r) => mock.server.close(r));
+  });
+
+  test.use({
+    spaceFiles: {
+      "index.md": "# Home\n",
+      // An existing bibliography, which is where the storage path is learned
+      // from: the one citar on that machine already opens files with.
+      "zotero.bib":
+        "@misc{old,\n  title = {Old},\n  file = {/Users/elliott/Zotero/storage/OLDKEY00/old.pdf}\n}\n",
+      "CONFIG.md":
+        "```space-lua\n" +
+        `config.set("zotero", { username = "u", userId = "42", apiKey = "k", api = "http://127.0.0.1:${OWN_PORT}" })\n` +
+        "```\n",
+    },
+  });
+
+  test("a sync writes the bibliography, with Zotero's citekeys and local file paths", async ({
+    sbPage,
+    sbServer,
+  }) => {
+    await gotoSilverBulletPage(sbPage, sbServer, "index");
+    await sbPage.waitForTimeout(2500); // config to settle
+    await sbPage.evaluate(() =>
+      (globalThis as any).sbRuntime.evalLuaScript(
+        'editor.invokeCommand("Zotero: Sync Library")',
+      ),
+    );
+
+    const bib = async () =>
+      await (
+        await fetch(`${sbServer.url}/.fs/zotero.bib`, {
+          headers: { "X-Sync-Mode": "true" },
+        })
+      ).text();
+    await expect.poll(bib, { timeout: 30_000 }).toContain("graham2004hackers");
+    const text = await bib();
+    // Written by us, from the API.
+    expect(text).toContain("% Written by SilverBullet");
+    expect(text).toContain("@article{graham2004hackers,");
+    expect(text).toContain("title = {Hackers \\& Painters}");
+    expect(text).toContain("author = {Graham, Paul}");
+    expect(text).toContain("journal = {Some Journal}");
+    expect(text).toContain("keywords = {essays}");
+    // The storage path was learned from the bibliography that was there.
+    expect(text).toContain(
+      "file = {/Users/elliott/Zotero/storage/ATTACHAA/hackers.pdf}",
+    );
+    // An item with no citekey cannot be cited, so it is not in the file.
+    expect(text).not.toContain("Uncitable");
+    // And the entry that was there before, which Zotero does not have, is
+    // gone: the library is the source now.
+    expect(text).not.toContain("@misc{old");
+
+    // The index holds the library, with the item keys the export lacks.
+    const indexed = await sbPage.evaluate(() =>
+      (globalThis as any).sbRuntime.evalLuaScript(`
+        local o = {}
+        for _, z in ipairs(query[[from z = index.tag "zotero" order by z.citekey]]) do
+          table.insert(o, tostring(z.citekey) .. ":" .. tostring(z.item))
+        end
+        local s = query[[from index.tag "zotero-sync"]]
+        return table.concat(o, ",") .. " | version=" .. tostring(s[1] and s[1].version)
+      `),
+    );
+    expect(indexed).toContain("graham2004hackers:ITEMAAAA");
+    expect(indexed).toContain("version=11");
+  });
+
+  test("a citation renders from the written bibliography", async ({
+    sbPage,
+    sbServer,
+  }) => {
+    await gotoSilverBulletPage(sbPage, sbServer, "index");
+    await sbPage.waitForTimeout(2500);
+    await sbPage.evaluate(() =>
+      (globalThis as any).sbRuntime.evalLuaScript(
+        'editor.invokeCommand("Zotero: Sync Library")',
+      ),
+    );
+    await sbPage.waitForTimeout(3000);
+    // A note written after the sync cites the item by the key Zotero gave it.
+    await sbPage.evaluate(() =>
+      (globalThis as any).sbRuntime.evalLuaScript(
+        'space.writePage("Cite.org", "#+title: Cite\\n\\nSee [cite:@graham2004hackers].\\n")',
+      ),
+    );
+    await gotoSilverBulletPage(sbPage, sbServer, "Cite.org");
+    await expect(
+      sbPage.locator("#sb-editor .cm-content a.sb-zotero-citation"),
+    ).toContainText("Graham 2004", { timeout: 30_000 });
+  });
+});
+
+const EMPTY_PORT = MOCK_PORT + 4;
+
+test.describe("Zotero: a sync that reads nothing", () => {
+  let mock: Awaited<ReturnType<typeof mockZotero>>;
+  test.beforeAll(async () => {
+    // A key without access, a wrong user id: the API answers with a library
+    // of no items. The bibliography must survive that.
+    mock = await mockZotero({ port: EMPTY_PORT, library: [] });
+  });
+  test.afterAll(async () => {
+    await new Promise((r) => mock.server.close(r));
+  });
+
+  test.use({
+    spaceFiles: {
+      "index.md": "# Home\n",
+      "zotero.bib":
+        "@misc{keepme,\n  title = {Keep me},\n  file = {/Users/elliott/Zotero/storage/OLDKEY00/old.pdf}\n}\n",
+      "CONFIG.md":
+        "```space-lua\n" +
+        `config.set("zotero", { username = "u", userId = "42", apiKey = "k", api = "http://127.0.0.1:${EMPTY_PORT}" })\n` +
+        "```\n",
+    },
+  });
+
+  test("leaves the bibliography alone", async ({ sbPage, sbServer }) => {
+    await gotoSilverBulletPage(sbPage, sbServer, "index");
+    await sbPage.waitForTimeout(2500);
+    await sbPage.evaluate(() =>
+      (globalThis as any).sbRuntime.evalLuaScript(
+        'editor.invokeCommand("Zotero: Sync Library")',
+      ),
+    );
+    await sbPage.waitForTimeout(4000);
+    const bib = await (
+      await fetch(`${sbServer.url}/.fs/zotero.bib`, {
+        headers: { "X-Sync-Mode": "true" },
+      })
+    ).text();
+    expect(bib).toContain("@misc{keepme");
+    // And citations still resolve from it, since an empty library does not
+    // take the file out of service.
+    const resolved = await sbPage.evaluate(() =>
+      (globalThis as any).sbRuntime.evalLuaScript(
+        'local z = query[[from z = index.tag "zotero" where z.citekey == "keepme"]] return #z',
+      ),
+    );
+    expect(Number(resolved)).toBe(1);
   });
 });

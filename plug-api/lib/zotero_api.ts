@@ -323,3 +323,55 @@ export async function setZoteroItemTags(
   });
   return res.ok;
 }
+
+export type ZoteroListPage = {
+  items: Record<string, unknown>[];
+  /** The library version the response was generated against. */
+  version: number;
+  /** How many items the query matches in total, on the first page. */
+  total?: number;
+};
+
+/**
+ * One page of the library. `since` makes it incremental: Zotero answers with
+ * the items changed after that library version, which is how a whole library
+ * is kept current in one request per change rather than thousands.
+ */
+export async function listZoteroItems(
+  { userId, apiKey, api = zoteroApi }: ZoteroCredentials,
+  options: { since?: number; start?: number; limit?: number } = {},
+  fetchFn: typeof fetch = fetch,
+): Promise<ZoteroListPage> {
+  const params = new URLSearchParams({
+    limit: String(options.limit ?? 100),
+    start: String(options.start ?? 0),
+  });
+  if (options.since !== undefined) params.set("since", String(options.since));
+  const res = await fetchFn(`${api}/users/${userId}/items?${params}`, {
+    headers: { "Zotero-API-Key": apiKey, "Zotero-API-Version": "3" },
+  });
+  if (!res.ok) {
+    throw new Error(`Zotero: could not list items (${res.status})`);
+  }
+  const body = (await res.json()) as { data?: Record<string, unknown> }[];
+  const total = res.headers.get("Total-Results");
+  return {
+    items: body.map((entry) => entry.data ?? {}),
+    version: Number(res.headers.get("Last-Modified-Version") ?? 0),
+    ...(total ? { total: Number(total) } : {}),
+  };
+}
+
+/** The keys of items deleted since a library version. */
+export async function listDeletedZoteroItems(
+  { userId, apiKey, api = zoteroApi }: ZoteroCredentials,
+  since: number,
+  fetchFn: typeof fetch = fetch,
+): Promise<string[]> {
+  const res = await fetchFn(`${api}/users/${userId}/deleted?since=${since}`, {
+    headers: { "Zotero-API-Key": apiKey, "Zotero-API-Version": "3" },
+  });
+  if (!res.ok) return [];
+  const body = (await res.json()) as { items?: string[] };
+  return body.items ?? [];
+}
