@@ -246,7 +246,9 @@ export function renderBibtex(entries: BibEntry[]): string {
         .filter((f) => !fieldOrder.includes(f))
         .sort(),
     ];
-    out.push("", `@${entry.type}{${entry.citekey},`);
+    // An item Zotero holds nothing about but its key still belongs in the
+    // file, so a citation of it resolves; with no fields it takes no comma.
+    out.push("", `@${entry.type}{${entry.citekey}${keys.length ? "," : ""}`);
     for (const key of keys) {
       // `file` holds paths, which must survive verbatim: an escaped backslash
       // or brace in a path is a path that does not open.
@@ -254,9 +256,11 @@ export function renderBibtex(entries: BibEntry[]): string {
         key === "file" ? entry.fields[key] : escapeValue(entry.fields[key]);
       out.push(`  ${key} = {${value}},`);
     }
-    // No trailing comma on the last field, as every exporter writes it.
-    const last = out.length - 1;
-    out[last] = out[last].replace(/,$/, "");
+    if (keys.length) {
+      // No trailing comma on the last field, as every exporter writes it.
+      const last = out.length - 1;
+      out[last] = out[last].replace(/,$/, "");
+    }
     out.push("}");
   }
   return `${out.join("\n")}\n`;

@@ -114,3 +114,20 @@ test("the storage path is learned from a bibliography already in the space", () 
     detectStoragePath("@misc{a,\n  title = {No files}\n}"),
   ).toBeUndefined();
 });
+
+test("an item with nothing but a key is still a valid entry", () => {
+  const text = renderBibtex([
+    zoteroItemToEntry({ key: "I6", itemType: "document", citationKey: "bare" }),
+    zoteroItemToEntry({
+      key: "I7",
+      itemType: "book",
+      citationKey: "next",
+      title: "Next",
+    }),
+  ]);
+  expect(text).toContain("@misc{bare\n}");
+  // It does not swallow what follows it. (Our own reader skips an entry with
+  // no fields -- there is nothing to show for it -- which is also what it has
+  // always done with Better BibTeX's output for the same items.)
+  expect(parseBibtex(text).map((e) => e.citekey)).toEqual(["next"]);
+});
