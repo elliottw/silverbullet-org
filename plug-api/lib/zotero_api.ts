@@ -339,7 +339,13 @@ export type ZoteroListPage = {
  */
 export async function listZoteroItems(
   { userId, apiKey, api = zoteroApi }: ZoteroCredentials,
-  options: { since?: number; start?: number; limit?: number } = {},
+  options: {
+    since?: number;
+    start?: number;
+    limit?: number;
+    /** An `itemType` query, e.g. `-annotation || note` to leave those out. */
+    itemType?: string;
+  } = {},
   fetchFn: typeof fetch = fetch,
 ): Promise<ZoteroListPage> {
   const params = new URLSearchParams({
@@ -347,9 +353,22 @@ export async function listZoteroItems(
     start: String(options.start ?? 0),
   });
   if (options.since !== undefined) params.set("since", String(options.since));
-  const res = await fetchFn(`${api}/users/${userId}/items?${params}`, {
+  if (options.itemType) params.set("itemType", options.itemType);
+  let res = await fetchFn(`${api}/users/${userId}/items?${params}`, {
     headers: { "Zotero-API-Key": apiKey, "Zotero-API-Version": "3" },
   });
+  // Zotero asks for a pause on a heavy read rather than refusing outright;
+  // a full library is exactly such a read.
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const wait = Number(
+      res.headers.get("Backoff") ?? res.headers.get("Retry-After") ?? 0,
+    );
+    if (res.status !== 429 && !(wait > 0 && res.status >= 500)) break;
+    await new Promise((r) => setTimeout(r, Math.max(1, wait) * 1000));
+    res = await fetchFn(`${api}/users/${userId}/items?${params}`, {
+      headers: { "Zotero-API-Key": apiKey, "Zotero-API-Version": "3" },
+    });
+  }
   if (!res.ok) {
     throw new Error(`Zotero: could not list items (${res.status})`);
   }

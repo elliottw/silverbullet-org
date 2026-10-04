@@ -1085,13 +1085,27 @@ export async function syncLibrary(
     const children = new Map<string, ZoteroApiItem[]>();
     let version = state?.version ?? 0;
     let total: number | undefined;
+    let fetched = 0;
+    // Highlights and standalone notes are the bulk of a library that has been
+    // read in, and none of them can be cited: leaving them out of the query
+    // is most of what makes a full pass bearable.
+    const itemType = "-annotation || note";
     for (let start = 0; ; start += 100) {
-      const page = await listZoteroItems(creds, { since, start, limit: 100 });
+      const page = await listZoteroItems(creds, {
+        since,
+        start,
+        limit: 100,
+        itemType,
+      });
       version = Math.max(version, page.version);
       total ??= page.total;
+      fetched += page.items.length;
       for (const raw of page.items) {
         const item = raw as unknown as ZoteroApiItem;
         if (!item.key) continue;
+        if (item.itemType === "annotation" || item.itemType === "note") {
+          continue;
+        }
         if (item.parentItem) {
           children.set(item.parentItem, [
             ...(children.get(item.parentItem) ?? []),
@@ -1102,6 +1116,11 @@ export async function syncLibrary(
         }
       }
       if (page.items.length < 100) break;
+      if (start > 0 && start % 1000 === 0) {
+        console.log(
+          `[zotero] ${fetched}${total ? ` of ${total}` : ""} objects read`,
+        );
+      }
     }
 
     // An attachment that changed on its own: its parent has to be rewritten
@@ -1185,10 +1204,10 @@ export async function syncLibrary(
     ]);
     cache = undefined;
 
-    // The expected count, when the API told us one, is the guard against
-    // writing a bibliography out of a half-read library.
-    const consistent =
-      incremental || total === undefined || byKey.size >= total;
+    // The guard against writing a bibliography out of a half-read library:
+    // what the query said it would answer with, against what arrived --
+    // parents *and* their attachments, which is what was asked for.
+    const consistent = incremental || total === undefined || fetched >= total;
     let wrote = false;
     if (consistent) {
       wrote = await writeBibliography([...byKey.values()].map(objectToEntry), {
@@ -1281,14 +1300,19 @@ export async function resyncLibraryCommand() {
 }
 
 /**
- * Keeps the library fresh without a timer: a page load syncs it when it is
- * older than `zotero.syncEvery` minutes. Page loads are frequent and a
- * no-change sync is one request.
+ * Keeps a synced library fresh without a timer: a page load refreshes it when
+ * it is older than `zotero.syncEvery` minutes, which costs one request when
+ * nothing has changed.
+ *
+ * The *first* pass is not done here. Reading a whole library is thousands of
+ * items over tens of requests, and that belongs to a command you ran, with a
+ * notification -- not to a page load that happens to be the first one.
  */
 export async function syncLibraryWhenStale() {
   const { userId, apiKey, syncEvery } = await zoteroConfig();
   if (!userId || !apiKey) return;
   const state = await syncState();
+  if (!state?.complete) return;
   const age = state?.at ? Date.now() - new Date(state.at).getTime() : Infinity;
   if (age < syncEvery * 60_000) return;
   try {
