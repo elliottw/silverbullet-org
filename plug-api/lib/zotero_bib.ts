@@ -84,7 +84,7 @@ const fieldMap: Record<string, string> = {
   university: "school",
   callNumber: "lccn",
   numPages: "pagetotal",
-  accessDate: "urldate",
+  rights: "copyright",
   websiteTitle: "journaltitle",
   blogTitle: "journaltitle",
   bookTitle: "booktitle",
@@ -106,6 +106,27 @@ function containerField(itemType: string): string {
     default:
       return "journaltitle";
   }
+}
+
+/** The few language codes a library actually carries, as biblatex names them. */
+const languages: Record<string, string> = {
+  en: "english",
+  "en-us": "american",
+  "en-gb": "british",
+  de: "german",
+  fr: "french",
+  es: "spanish",
+  it: "italian",
+  nl: "dutch",
+  pt: "portuguese",
+  ja: "japanese",
+  zh: "chinese",
+  ru: "russian",
+};
+
+function languageName(value: string): string {
+  const key = value.trim().toLowerCase().replace(/_/g, "-");
+  return languages[key] ?? languages[key.split("-")[0]] ?? value.trim();
 }
 
 const authorName = (c: {
@@ -134,9 +155,23 @@ export function zoteroItemToEntry(
     put(bib, item[zotero]);
   }
   put(containerField(item.itemType), item.publicationTitle);
+  // A page range is written with an en dash, as every exporter does.
+  if (fields.pages) {
+    fields.pages = fields.pages.replace(/(\d)\s*-\s*(\d)/, "$1--$2");
+  }
+  // `langid` is biblatex's, which wants a language name, not a code.
+  if (fields.langid) fields.langid = languageName(fields.langid);
+  // A date, not a timestamp: the day is what a bibliography records.
+  if (typeof item.accessDate === "string" && item.accessDate) {
+    fields.urldate = item.accessDate.slice(0, 10);
+  }
   const year = /\b(\d{4})\b/.exec(item.date ?? "")?.[1];
   if (year) fields.year = year;
-  if (item.date) fields.date = item.date;
+  // Zotero keeps whatever was typed in `date` -- `23/1994`, `Spring` -- and
+  // only a real one is worth writing beside the year.
+  if (item.date && /^\d{4}(-\d{2}(-\d{2})?)?$/.test(item.date.trim())) {
+    fields.date = item.date.trim();
+  }
 
   const creators = item.creators ?? [];
   const authors = creators
@@ -188,10 +223,15 @@ export function zoteroItemToEntry(
  * than anything written here; turn its export back on for that.
  */
 function escapeValue(value: string): string {
-  return value
-    .replace(/\\/g, "\\textbackslash{}")
-    .replace(/([{}])/g, "\\$1")
-    .replace(/([&%$#])/g, "\\$1");
+  return (
+    value
+      // A field is one line: an abstract's own newlines become spaces, so the
+      // file stays readable and every reader agrees where the value ends.
+      .replace(/\s*\n\s*/g, " ")
+      .replace(/\\/g, "\\textbackslash{}")
+      .replace(/([{}])/g, "\\$1")
+      .replace(/([&%$#])/g, "\\$1")
+  );
 }
 
 /** The order fields are written in: the ones a reader scans first. */

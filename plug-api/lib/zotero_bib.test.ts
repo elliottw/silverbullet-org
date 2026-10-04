@@ -131,3 +131,28 @@ test("an item with nothing but a key is still a valid entry", () => {
   // always done with Better BibTeX's output for the same items.)
   expect(parseBibtex(text).map((e) => e.citekey)).toEqual(["next"]);
 });
+
+test("the small conventions: en dash, language name, date not timestamp", () => {
+  const entry = zoteroItemToEntry({
+    key: "I8",
+    itemType: "journalArticle",
+    citationKey: "conv",
+    title: "Conventions",
+    pages: "471-489",
+    language: "en",
+    accessDate: "2024-09-02T20:15:19Z",
+    date: "23/1994",
+    rights: "All rights reserved",
+    abstractNote: "First line\n            second line",
+  });
+  expect(entry.fields.pages).toBe("471--489");
+  expect(entry.fields.langid).toBe("english");
+  expect(entry.fields.urldate).toBe("2024-09-02");
+  // A year can be read out of it, but `23/1994` is not a date.
+  expect(entry.fields.year).toBe("1994");
+  expect(entry.fields.date).toBeUndefined();
+  expect(entry.fields.copyright).toBe("All rights reserved");
+  // One field, one line.
+  const text = renderBibtex([entry]);
+  expect(text).toContain("abstract = {First line second line}");
+});
