@@ -485,6 +485,10 @@ export function registerEditorCommands(
   hook.registerCommand({
     name: "Delete Line",
     key: "Ctrl-d",
+    // Vim gets Ctrl-d: it is half-page-down in normal mode and dedent in
+    // insert mode, and someone who turned vim mode on is reaching for those
+    // constantly. The command stays in the palette, and `dd` deletes a line.
+    disableInVim: true,
     requireMode: "rw",
     requireEditor: "page",
     run: async () => deleteLine(view()),

@@ -358,3 +358,61 @@ test.describe("Motion over a collapsed link", () => {
     });
   }
 });
+
+test.describe("Vim keeps its own control keys", () => {
+  // A long page, so a half-page scroll has somewhere to go.
+  const LONG = `#+title: Long\n#+identifier: 20250101T100000\n\n${Array.from(
+    { length: 120 },
+    (_, i) => `line ${i + 1}`,
+  ).join("\n")}\n`;
+  test.use({
+    spaceFiles: { "index.md": "# x\n", "20250101T100000--long.org": LONG },
+  });
+
+  test("Ctrl-d scrolls half a page in vim mode instead of deleting the line", async ({
+    sbPage,
+    sbServer,
+  }) => {
+    await gotoSilverBulletPage(sbPage, sbServer, "20250101T100000--long.org");
+    const editor = sbPage.locator("#sb-editor .cm-content");
+    await expect(editor).toContainText("line 1", { timeout: 20_000 });
+    await enableVim(sbPage);
+    // Normal mode, cursor at the top of the body.
+    await editor.click();
+    await sbPage.keyboard.press("Escape");
+    await sbPage.evaluate(() =>
+      (globalThis as any).sbRuntime.evalLuaScript(
+        'editor.navigate({path = "20250101T100000--long.org", pos = 60})',
+      ),
+    );
+    const lineOf = () =>
+      sbPage.evaluate(() => {
+        const view = (globalThis as any).client.editorView;
+        return view.state.doc.lineAt(view.state.selection.main.head).number;
+      });
+    const before = await lineOf();
+    const text = await sbPage.evaluate(() =>
+      (globalThis as any).sbRuntime.evalLua("editor.getText()"),
+    );
+    await sbPage.keyboard.press("Control+d");
+    await expect.poll(lineOf, { timeout: 10_000 }).toBeGreaterThan(before + 5);
+    // Nothing was deleted.
+    expect(
+      await sbPage.evaluate(() =>
+        (globalThis as any).sbRuntime.evalLua("editor.getText()"),
+      ),
+    ).toBe(text);
+    // `dd` still deletes a line, as vim's own binding.
+    await sbPage.keyboard.press("d");
+    await sbPage.keyboard.press("d");
+    await expect
+      .poll(
+        () =>
+          sbPage.evaluate(() =>
+            (globalThis as any).sbRuntime.evalLua("editor.getText()"),
+          ),
+        { timeout: 10_000 },
+      )
+      .not.toBe(text);
+  });
+});
