@@ -1011,6 +1011,9 @@ export async function syncReferenceNote(
   if (
     entry &&
     citekey &&
+    // A note still carrying the standalone `#+zotero_tags:` line has one
+    // thing left to do: fold it into the item's line.
+    !legacySyncedLine.test(text) &&
     agrees(noteKeywords, shadow) &&
     agrees(shadow, bibTags)
   ) {
