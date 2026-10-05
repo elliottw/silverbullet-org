@@ -652,24 +652,41 @@ export async function addDocument(
   if (!referenceNoteOnAdd) {
     return linkForItem(attachment, name, page);
   }
-  // The library gained an item: sync it in, so the note's citekey -- which
-  // Zotero mints -- is there to be written rather than filled in later.
-  let citekey: string | undefined;
-  try {
-    await syncLibrary();
-    citekey = (await entryByItemKey(attachment))?.citekey;
-  } catch (e: any) {
-    console.warn("[zotero] could not sync after adding", e.message);
-  }
+  // The note first, and the link back to the caller: a drop must show its
+  // result at once. The library gained an item, and the citekey Zotero mints
+  // for it follows -- but only when that is a quick incremental sync. Reading
+  // a whole library takes minutes, and a drop is not the moment for it.
   const note = await createReferenceNote({
     title,
     item: parent,
     attachment,
     fileName: name,
-    citekey,
   });
   await editor.flashNotification(`Reference note: ${title}`);
+  void fillInCitekey(note.page, attachment);
   return linkFor(linkSyntaxFor(page), `denote:${note.identifier}`, title);
+}
+
+/**
+ * Brings the new item's citekey into its reference note, once the library
+ * knows about it. Deliberately not awaited by the drop: it is a network
+ * round trip, and nothing the writer is waiting on.
+ */
+async function fillInCitekey(page: string, attachment: string) {
+  try {
+    const state = await syncState();
+    if (!state?.complete) {
+      // Nothing synced on this device yet, and reading the library is a
+      // two-minute job: `Zotero: Sync Library` is where that belongs. The
+      // note carries the item key, so the citekey arrives with the next one.
+      return;
+    }
+    await syncLibrary();
+    const citekey = (await entryByItemKey(attachment))?.citekey;
+    if (citekey) await syncReferenceNote(page);
+  } catch (e: any) {
+    console.warn("[zotero] could not fetch the citekey", e.message);
+  }
 }
 
 /**

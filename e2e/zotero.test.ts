@@ -180,6 +180,8 @@ function mockZotero(
     seedTags?: Record<string, string[]>;
     /** The items a library listing answers with. */
     library?: Record<string, unknown>[];
+    /** Milliseconds to sit on a library listing, as a big read does. */
+    slowList?: number;
     libraryVersion?: number;
     deleted?: string[];
   } = {},
@@ -247,6 +249,17 @@ function mockZotero(
         // this mock answers the same items either way, which is enough to
         // prove the pass runs and writes.
         const library = options.library ?? [];
+        if (options.slowList) {
+          setTimeout(() => {
+            res.writeHead(200, {
+              "Content-Type": "application/json",
+              "Last-Modified-Version": String(options.libraryVersion ?? 7),
+              "Total-Results": "0",
+            });
+            res.end("[]");
+          }, options.slowList);
+          return;
+        }
         res.writeHead(200, {
           "Content-Type": "application/json",
           "Last-Modified-Version": String(options.libraryVersion ?? 7),
@@ -902,5 +915,89 @@ test.describe("Zotero: a sync that reads nothing", () => {
       ),
     );
     expect(Number(resolved)).toBe(1);
+  });
+});
+
+const SLOW_PORT = MOCK_PORT + 5;
+
+test.describe("Zotero: a slow library does not swallow a drop", () => {
+  let mock: Awaited<ReturnType<typeof mockZotero>>;
+  test.beforeAll(async () => {
+    // Reading a real library is thousands of items over tens of requests. A
+    // drop must not wait for it: the note and the link come first.
+    mock = await mockZotero({
+      port: SLOW_PORT,
+      strictUpload: false,
+      slowList: 20_000,
+    });
+  });
+  test.afterAll(async () => {
+    await new Promise((r) => mock.server.close(r));
+  });
+
+  test.use({
+    spaceFiles: {
+      "index.md": "# Home\n",
+      "Slow.org": "#+title: Slow\n\nDrop here.\n",
+      "CONFIG.md":
+        "```space-lua\n" +
+        `config.set("zotero", { username = "u", userId = "42", apiKey = "k", api = "http://127.0.0.1:${SLOW_PORT}" })\n` +
+        "```\n",
+    },
+  });
+
+  test("the reference note and its link arrive without waiting for the library", async ({
+    sbPage,
+    sbServer,
+  }) => {
+    await gotoSilverBulletPage(sbPage, sbServer, "Slow.org");
+    const editor = sbPage.locator("#sb-editor .cm-content");
+    await expect(editor).toContainText("Drop here.");
+    await sbPage.waitForTimeout(2500);
+    await editor.click();
+    await sbPage.keyboard.press("Control+End");
+    await sbPage.evaluate(() => {
+      const dt = new DataTransfer();
+      dt.items.add(
+        new File([new TextEncoder().encode("%PDF-1.4 slow")], "paper.pdf", {
+          type: "application/pdf",
+        }),
+      );
+      document.querySelector("#sb-editor .cm-content")!.dispatchEvent(
+        new DragEvent("drop", {
+          dataTransfer: dt,
+          clientX: 0,
+          clientY: 0,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    const prompt = sbPage
+      .locator(".sb-modal-box input, .sb-modal input")
+      .first();
+    await expect(prompt).toBeVisible({ timeout: 20_000 });
+    await prompt.press("Enter");
+    const filter = sbPage
+      .locator(".sb-modal-box input, .sb-modal input")
+      .first();
+    await expect(filter).toBeVisible({ timeout: 20_000 });
+    await filter.fill("2026");
+    const started = Date.now();
+    await filter.press("Enter");
+
+    // Well inside the 20 seconds the listing sits on its answer.
+    await expect
+      .poll(
+        () =>
+          sbPage.evaluate(() =>
+            (globalThis as any).sbRuntime.evalLuaScript(
+              "return editor.getText()",
+            ),
+          ),
+        { timeout: 12_000 },
+      )
+      .toMatch(/\[\[denote:\d{8}T\d{6}\]\[Paper\]\]/);
+    expect(Date.now() - started).toBeLessThan(15_000);
   });
 });
