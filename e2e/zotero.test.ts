@@ -305,7 +305,9 @@ function mockZotero(
               key,
               version,
               itemType: key === "MOCKKEY1" ? "attachment" : "document",
-              ...(key === "MOCKKEY1" ? { parentItem: "MOCKPAR1" } : {}),
+              ...(key === "MOCKKEY1"
+                ? { parentItem: "MOCKPAR1" }
+                : { citationKey: "paper2026" }),
               tags: (tags.get(key) ?? []).map((tag) => ({ tag })),
             },
           }),
@@ -1030,8 +1032,10 @@ test.describe("Zotero: keywords on a note SilverBullet made", () => {
   test.use({
     spaceFiles: {
       "index.md": "# Home\n",
-      "zotero.bib":
-        "@misc{paper2026,\n  title = {Paper},\n  file = {/Users/elliott/Zotero/storage/MOCKKEY1/paper.pdf}\n}\n",
+      // A bibliography that knows nothing of this item: the note was made on a
+      // device whose library has never been read, which is every device the
+      // first time a drop makes a note.
+      "zotero.bib": "@misc{somethingelse,\n  title = {Something else}\n}\n",
       "20261005T093900--paper__bib.org": OURS_NOTE,
       "CONFIG.md":
         "```space-lua\n" +
@@ -1053,8 +1057,9 @@ test.describe("Zotero: keywords on a note SilverBullet made", () => {
       "paper.pdf",
       { timeout: 20_000 },
     );
-    // The sync on open fills in the citekey first; let it finish, so the edit
-    // below is not racing it.
+    // The sync on open asks the item itself for the citekey -- no library
+    // sync, no bibliography entry. Let it finish, so the edit below is not
+    // racing it.
     await expect(sbPage.locator("#sb-editor .cm-content")).toContainText(
       "paper2026",
       { timeout: 20_000 },

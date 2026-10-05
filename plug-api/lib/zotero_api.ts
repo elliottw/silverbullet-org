@@ -271,6 +271,8 @@ export type ZoteroItem = {
   itemType: string;
   title?: string;
   parentItem?: string;
+  /** Better BibTeX's citekey, which Zotero carries for it. */
+  citationKey?: string;
   tags: { tag: string; type?: number }[];
 };
 
@@ -292,6 +294,7 @@ export async function getZoteroItem(
     itemType: data.itemType ?? "",
     title: data.title,
     parentItem: data.parentItem,
+    citationKey: data.citationKey,
     tags: data.tags ?? [],
   };
 }

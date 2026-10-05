@@ -929,7 +929,6 @@ export async function syncReferenceNote(
     : attachment
       ? await entryByItemKey(attachment)
       : undefined;
-  if (!entry) return;
 
   const parsed = parseDenoteFrontMatter(text, denoteFileType(".org", text));
   const noteKeywords = (parsed.keywords as string[]).filter(
@@ -946,31 +945,39 @@ export async function syncReferenceNote(
     !!apiKey &&
     (!firstContact || options.firstContactPush === true);
 
-  // Nothing to reconcile: the note, the shadow and the bibliography all say
-  // the same, and the citekey is in place. Returning here is what keeps
-  // opening a reference note from costing a request.
+  // Nothing to reconcile: the note, the shadow and what the library says all
+  // agree, and the citekey is in place. Returning here is what keeps opening a
+  // reference note from costing a request.
   const agrees = (a: string[], b: string[]) =>
     a.length === b.length &&
     [...a].sort().every((x, i) => x === [...b].sort()[i]);
-  const bibTags = entry.keywords.map(slugifyTag).filter(Boolean);
-  if (citekey && agrees(noteKeywords, shadow) && agrees(shadow, bibTags)) {
+  const bibTags = (entry?.keywords ?? []).map(slugifyTag).filter(Boolean);
+  if (
+    entry &&
+    citekey &&
+    agrees(noteKeywords, shadow) &&
+    agrees(shadow, bibTags)
+  ) {
     return { note: false, zotero: false };
   }
 
-  // Zotero's own tags. With the library synced from the API they are in the
-  // index already, fresh, and no request is needed to read them; a push still
-  // asks for the item, because writing needs its version.
+  // Which item this note is about. `#+zotero:` is what SilverBullet wrote when
+  // it made the note; the other two are for a note that came from a picker.
   const item =
     itemOf(text) ??
-    (await itemKeyForCitekey(entry.citekey)) ??
+    (entry ? await itemKeyForCitekey(entry.citekey) : undefined) ??
     (await parentOf(attachment));
   const creds: ZoteroCredentials | undefined =
     userId && apiKey ? { userId, apiKey, api } : undefined;
-  const current =
-    canPush && creds && item ? await getZoteroItem(creds, item) : undefined;
-  // The item answers for itself when we had to ask it anyway; otherwise the
-  // index, which a synced library keeps current.
-  const zoteroTags = current ? current.tags.map((x) => x.tag) : entry.keywords;
+  // The item itself, when we know which it is: its tags are authoritative, it
+  // carries the citekey Zotero minted, and writing needs its version. This is
+  // also what makes a note work on a device whose library has not been synced
+  // -- which is every device, the first time a drop makes a note.
+  const current = creds && item ? await getZoteroItem(creds, item) : undefined;
+  if (!entry && !current) return;
+  const zoteroTags = current
+    ? current.tags.map((x) => x.tag)
+    : (entry?.keywords ?? []);
   const push = canPush && !!current;
   const merged = mergeTags({ noteKeywords, zoteroTags, shadow, push });
 
@@ -989,7 +996,11 @@ export async function syncReferenceNote(
   }
 
   let updated = text;
-  if (!citekey) updated = setLine(updated, "reference", entry.citekey);
+  // The citekey: Zotero's own, from the item or from the bibliography.
+  const resolved = citekey ?? current?.citationKey ?? entry?.citekey;
+  if (!citekey && resolved) {
+    updated = setLine(updated, "reference", resolved);
+  }
   if (merged.noteChanged) {
     updated = rewriteDenoteFrontMatter(updated, "org", {
       keywords: [...new Set([referenceKeyword, ...merged.keywords])]
