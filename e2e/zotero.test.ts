@@ -486,11 +486,10 @@ test.describe("Zotero: adding a file", () => {
     ).text();
     expect(note).toContain("#+title:      Paper");
     expect(note).toContain("#+filetags:   :bib:");
-    expect(note).toContain("#+zotero:");
-    expect(note).toContain("MOCKPAR1");
-    // An agreed tag set, empty but recorded: without the line a keyword added
-    // here would be read as predating the arrangement and never pushed.
-    expect(note).toMatch(/^#\+zotero_tags:/m);
+    // The item and the agreed tag set, on one line: `tags:` is empty but
+    // present, so a keyword added later is read as added rather than as one
+    // predating the arrangement.
+    expect(note).toMatch(/^#\+zotero:\s+MOCKPAR1 tags:$/m);
     expect(note).toContain("[[zotero:MOCKKEY1][paper.pdf]]");
     // A parent to cite, in the chosen collection, with the file as its child.
     const parent = mock.items.find((i) => i.itemType !== "attachment");
@@ -524,6 +523,7 @@ const SYNC_BIB = String.raw`
 }
 `;
 
+// Deliberately the older shape: a bare `#+zotero:` line, no agreed tags.
 const SYNC_NOTE = `#+title:      Paper
 #+date:       [2026-10-04 Sun 10:00]
 #+filetags:   :bib:
@@ -586,8 +586,8 @@ test.describe("Zotero: keywords and tags in step", () => {
     expect(text).toContain("#+filetags:   :bib:landbank:rtk:");
     // The citekey Better BibTeX minted, found through the attachment key.
     expect(text).toContain("#+reference:  paper2026");
-    // And the shadow of what both sides agreed on.
-    expect(text).toMatch(/#\+zotero_tags:\s+landbank rtk/);
+    // And what both sides agreed on, folded into the item's own line.
+    expect(text).toMatch(/#\+zotero:\s+MOCKPAR1 tags:landbank,rtk/);
     // Nothing was pushed: Zotero had both tags already.
     expect(mock.patches.length).toBe(patchesBefore);
   });
@@ -1030,6 +1030,8 @@ const OURS_NOTE = `#+title:      Paper
 
 [[zotero:MOCKKEY1][paper.pdf]]
 `;
+// A note written before the agreed set moved onto the `#+zotero:` line keeps
+// working, and moves over the next time it syncs.
 
 test.describe("Zotero: keywords on a note SilverBullet made", () => {
   let mock: Awaited<ReturnType<typeof mockZotero>>;
@@ -1096,6 +1098,12 @@ test.describe("Zotero: keywords on a note SilverBullet made", () => {
     await expect
       .poll(() => mock.tags.get("MOCKPAR1") ?? [], { timeout: 30_000 })
       .toEqual(["psychology", "race"]);
+    // The standalone line is gone: one line holds the item and the agreement.
+    const text = await sbPage.evaluate(() =>
+      (globalThis as any).sbRuntime.evalLuaScript("return editor.getText()"),
+    );
+    expect(text).not.toContain("#+zotero_tags:");
+    expect(text).toMatch(/#\+zotero:\s+MOCKPAR1 tags:psychology,race/);
   });
 });
 

@@ -310,21 +310,59 @@ export function referenceOf(text: string): string | undefined {
   return referenceLine.exec(text)?.[1].trim().replace(/^@/, "");
 }
 
+/**
+ * `#+zotero: ITEMKEY tags:a,b` -- the item this note is about, and the tags it
+ * and the item last agreed on. One line, because the agreed set is bookkeeping
+ * rather than a second list of tags to keep: it is what tells a keyword added
+ * here from a tag removed there, and nothing else reads it.
+ *
+ * The older form, a `#+zotero_tags:` line of its own, is still read: a note
+ * written before this moves over the next time it syncs.
+ */
 const itemLine = /^#\+zotero:[ \t]*(.+)$/im;
-const syncedLine = /^#\+zotero_tags:[ \t]*(.*)$/im;
+const legacySyncedLine = /^#\+zotero_tags:[ \t]*(.*)$/im;
 
 /** The Zotero item a reference note is about, from its `#+zotero:` line. */
 export function itemOf(text: string): string | undefined {
-  return itemLine.exec(text)?.[1].trim() || undefined;
+  const value = itemLine.exec(text)?.[1].trim();
+  if (!value) return undefined;
+  const key = value.split(/\s+/)[0];
+  return key && !key.startsWith("tags:") ? key : undefined;
 }
 
 /** The tag slugs the last sync left this note and its item agreeing on. */
 export function syncedTagsOf(text: string): string[] {
-  const raw = syncedLine.exec(text)?.[1] ?? "";
+  const value = itemLine.exec(text)?.[1] ?? "";
+  const folded = /(?:^|\s)tags:([^\s]*)/.exec(value);
+  const raw = folded ? folded[1] : (legacySyncedLine.exec(text)?.[1] ?? "");
   return raw
     .split(/[\s,:]+/)
     .map(slugifyTag)
     .filter(Boolean);
+}
+
+/** Whether this note has ever recorded an agreement, in either form. */
+function hasSyncedTags(text: string): boolean {
+  const value = itemLine.exec(text)?.[1] ?? "";
+  return /(?:^|\s)tags:/.test(value) || legacySyncedLine.test(text);
+}
+
+/**
+ * Writes the item and the agreed tags as one line, and takes the older
+ * standalone line away. With no item key to hang them from -- a note made
+ * from the bibliography, on a device with no API key -- the old line is still
+ * where they go.
+ */
+function setZoteroLine(
+  text: string,
+  item: string | undefined,
+  shadow: string[],
+): string {
+  if (!item) {
+    return setLine(text, "zotero_tags", shadow.join(" "), { keepEmpty: true });
+  }
+  const without = text.replace(legacySyncedLine, "").replace(/\n\n+$/, "\n");
+  return setLine(without, "zotero", `${item} tags:${shadow.join(",")}`);
 }
 
 /** The first `[[zotero:KEY]]` in a note -- the file it is about. */
@@ -722,16 +760,14 @@ export async function createReferenceNote(spec: {
   });
   let text = await space.readPage(page);
   if (spec.citekey) text = setLine(text, "reference", spec.citekey);
-  if (spec.item) text = setLine(text, "zotero", spec.item);
-  // Always, even with nothing in it: this note and the item it is about agree
-  // on an empty set of tags, and recording that is what tells a later sync
-  // that the note is not one that predates the arrangement. Without the line
-  // a keyword added here would never be pushed.
-  text = setLine(
+  // `tags:` is written even when there is nothing in it: this note and the
+  // item agree on an empty set, and recording that is what tells a later sync
+  // the note is not one that predates the arrangement. Without it a keyword
+  // added here would never be pushed.
+  text = setZoteroLine(
     text,
-    "zotero_tags",
-    (spec.keywords ?? []).map(slugifyTag).join(" "),
-    { keepEmpty: true },
+    spec.item,
+    (spec.keywords ?? []).map(slugifyTag).filter(Boolean),
   );
   const body = [
     spec.citekey ? `[cite:@${spec.citekey}]` : "",
@@ -958,7 +994,7 @@ export async function syncReferenceNote(
   // First contact is for a note that predates this arrangement. A note
   // carrying `#+zotero:` was written by SilverBullet against a real item, so
   // its keywords are ours to push even before the first sync records a shadow.
-  const firstContact = !syncedLine.test(text) && !itemLine.test(text);
+  const firstContact = !hasSyncedTags(text) && !itemLine.test(text);
   const canPush =
     syncKeywords === "both" &&
     !!userId &&
@@ -1016,9 +1052,6 @@ export async function syncReferenceNote(
       current.version,
     );
   }
-  if (zoteroWritten && item && !itemOf(text)) {
-    text = setLine(text, "zotero", item);
-  }
 
   let updated = text;
   // The citekey: Zotero's own, from the item or from the bibliography.
@@ -1037,9 +1070,7 @@ export async function syncReferenceNote(
   // what the note last agreed on stands.
   const agreed =
     merged.zoteroChanged && push && !zoteroWritten ? shadow : merged.shadow;
-  updated = setLine(updated, "zotero_tags", agreed.join(" "), {
-    keepEmpty: true,
-  });
+  updated = setZoteroLine(updated, item ?? itemOf(updated), agreed);
 
   if (
     updated === (open ? await editor.getText() : await space.readPage(page))

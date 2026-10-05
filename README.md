@@ -206,9 +206,9 @@ citation then has a note of its own to live in, which is where notes about a
 source belong. The reference note is an ordinary Denote note carrying the
 `bib` keyword, a link to the file, and three lines:
 
-    #+reference:   graham2004hackers   the citekey, which is Zotero's
-    #+zotero:      P6F9ZMNS            the item itself
-    #+zotero_tags: landbank rtk        what note and library last agreed on
+    #+reference: graham2004hackers        the citekey, which is Zotero's
+    #+zotero:    P6F9ZMNS tags:landbank,rtk  the item, and what note and
+                                             library last agreed on
 
 `zotero.referenceNoteOnAdd = false` goes back to linking the file directly.
 
@@ -272,10 +272,12 @@ pointed somewhere else.
 ### Keywords and tags, kept in step
 
 A reference note's keywords and its Zotero item's tags are the same list in
-two places, so they are reconciled rather than copied: `#+zotero_tags:` records
-what the two last agreed on, which is what tells a keyword you added here from
-a tag that was removed there. Opening a reference note syncs it; `Zotero: Sync
-Reference Notes` does the library.
+two places, so they are reconciled rather than copied: `tags:` on the
+`#+zotero:` line records what the two last agreed on, which is what tells a
+keyword you added here from a tag that was removed there. It is bookkeeping,
+not a second list to keep — nothing else reads it, and it rides along with the
+item key rather than taking a line of its own. Opening a reference note syncs
+it; `Zotero: Sync Reference Notes` does the library.
 
 | What happened | What follows |
 |---|---|
