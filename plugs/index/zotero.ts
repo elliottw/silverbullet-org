@@ -1122,6 +1122,36 @@ async function parentOf(attachment?: string): Promise<string | undefined> {
   return item?.parentItem;
 }
 
+/** When the note on screen was last checked against its item. */
+let lastOpenCheck = 0;
+
+/**
+ * Keeps the note on screen in step with its item while you are looking at it.
+ *
+ * Opening a note syncs it, but a tag renamed in the Zotero app while the note
+ * is already open would otherwise wait for the next navigation -- and that
+ * moment, switching back from Zotero to the browser, is exactly when you
+ * expect to see it. One request a minute, and only when there is no edit in
+ * flight: a sync writes the whole document, and doing that under someone's
+ * cursor is worse than waiting.
+ */
+export async function syncOpenReferenceNoteTick() {
+  if (Date.now() - lastOpenCheck < 60_000) return;
+  const { userId, apiKey, syncKeywords } = await zoteroConfig();
+  if (syncKeywords === "off" || !userId || !apiKey || syncing) return;
+  const page = await currentPage();
+  if (!page || !isDenoteNoteFile(page)) return;
+  lastOpenCheck = Date.now();
+  try {
+    const text = await editor.getText();
+    if (!itemOf(text) && !referenceOf(text)) return;
+    if (text !== (await space.readPage(page))) return; // unsaved: not now
+    await syncReferenceNote(page, { firstContactPush: false });
+  } catch (e: any) {
+    console.warn("[zotero] could not check the open note", e.message);
+  }
+}
+
 /** Syncs the reference note being opened, if that is what it is. */
 export async function syncReferenceNoteOnOpen(page: string) {
   try {

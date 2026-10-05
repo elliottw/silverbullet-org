@@ -1175,3 +1175,64 @@ test.describe("Zotero: tags an importer added", () => {
       .toEqual(["chosen", "imported", "mine"]);
   });
 });
+
+const RENAME_PORT = MOCK_PORT + 8;
+
+test.describe("Zotero: a tag renamed while the note is open", () => {
+  let mock: Awaited<ReturnType<typeof mockZotero>>;
+  test.beforeAll(async () => {
+    mock = await mockZotero({
+      port: RENAME_PORT,
+      library: [],
+      seedTags: { MOCKPAR1: ["psychology", "race"] },
+    });
+  });
+  test.afterAll(async () => {
+    await new Promise((r) => mock.server.close(r));
+  });
+
+  test.use({
+    spaceFiles: {
+      "index.md": "# Home\n",
+      "zotero.bib": "@misc{other,\n  title = {Other}\n}\n",
+      "20261005T140000--paper__bib_psychology_race.org":
+        "#+title:      Paper\n#+filetags:   :bib:psychology:race:\n#+identifier: 20261005T140000\n#+zotero:     MOCKPAR1 tags:psychology,race\n\n[[zotero:MOCKKEY1][paper.pdf]]\n",
+      "CONFIG.md":
+        "```space-lua\n" +
+        `config.set("zotero", { username = "u", userId = "42", apiKey = "k", api = "http://127.0.0.1:${RENAME_PORT}" })\n` +
+        "```\n",
+    },
+  });
+
+  test("arrives without navigating away and back", async ({
+    sbPage,
+    sbServer,
+  }) => {
+    await gotoSilverBulletPage(
+      sbPage,
+      sbServer,
+      "20261005T140000--paper__bib_psychology_race.org",
+    );
+    await expect(sbPage.locator("#sb-editor .cm-content")).toContainText(
+      "paper.pdf",
+      { timeout: 20_000 },
+    );
+    // Renamed in the Zotero app: the library now says something else.
+    mock.tags.set("MOCKPAR1", ["liberationpsychology", "race"]);
+    // No navigation, no keystroke: the note catches up on its own, and the
+    // keywords are part of the file name, so it is renamed too.
+    await expect(currentPage(sbPage)).toHaveValue(
+      "20261005T140000--paper__bib_liberationpsychology_race.org",
+      { timeout: 120_000 },
+    );
+    const text = await sbPage.evaluate(() =>
+      (globalThis as any).sbRuntime.evalLuaScript("return editor.getText()"),
+    );
+    expect(text).toContain("#+filetags:   :bib:liberationpsychology:race:");
+    expect(text).toMatch(
+      /#\+zotero:\s+MOCKPAR1 tags:liberationpsychology,race/,
+    );
+    // And nothing was pushed: the change came from there.
+    expect(mock.patches).toEqual([]);
+  });
+});

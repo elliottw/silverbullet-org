@@ -359,6 +359,12 @@ functions:
     path: ./zotero.ts:syncReferenceNoteOnOpen
     events:
       - editor:pageLoaded
+  # And once a minute for the note on screen, so a tag renamed in the Zotero
+  # app shows up without navigating away and back.
+  zoteroSyncOpenNote:
+    path: ./zotero.ts:syncOpenReferenceNoteTick
+    events:
+      - cron:secondPassed
   zoteroLinkForItem:
     path: ./zotero.ts:linkForItem
   # Called by the editor plug when a citation or zotero: link is followed.
