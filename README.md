@@ -203,14 +203,24 @@ images.
 What lands in the note is a link to a **reference note** for the item, written
 where you dropped it — not a link to the file. That is the point of it: a
 citation then has a note of its own to live in, which is where notes about a
-source belong. The reference note is an ordinary Denote note carrying the `bib`
-keyword, a link to the file, and three lines:
+source belong. The reference note is an ordinary Denote note carrying a link
+to the file and three lines:
 
     #+reference:   graham2004hackers   the citekey, which is Zotero's
     #+zotero:      P6F9ZMNS            the item itself
     #+zotero_tags: landbank rtk        what note and library last agreed on
 
 `zotero.referenceNoteOnAdd = false` goes back to linking the file directly.
+
+**What makes a note a reference note is `#+reference:` or `#+zotero:`** — not
+the `bib` keyword, which is *derived* from them: added when a note gains a
+reference, removed when it loses the last, exactly as `citar-denote` does it.
+The keyword still has to be in the file name, because that is how Emacs finds
+these notes — `citar-denote--get-notes` globs names for `_bib` rather than
+opening files, which is what Denote's metadata-in-the-name buys. But it is
+machinery, not one of your keywords: it is never offered in the keyword
+picker, never counted in `denote/keywords`, and never pushed to Zotero as a
+tag, where it would mean nothing.
 
 ### The library, and who owns the bibliography
 
@@ -279,6 +289,7 @@ Reference Notes` does the library.
 | a keyword added here | it is pushed up as a tag |
 | a keyword removed here | the tag goes |
 | a keyword Zotero never had | it stays local — only what both sides hold is recorded as agreed |
+| a tag an importer added (Zotero's `type: 1`) | ignored here, and left untouched there — a paper can arrive with twenty, and these become file names |
 
 A note that has never been synced does not push: its keywords predate the
 arrangement, and sending a library's worth of them to Zotero unasked is not
