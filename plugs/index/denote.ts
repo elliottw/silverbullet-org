@@ -936,7 +936,15 @@ export async function renameFromFrontMatter(
   if (renaming) {
     return undefined;
   }
-  const text = await space.readPage(pageName);
+  let text: string;
+  try {
+    text = await space.readPage(pageName);
+  } catch {
+    // Gone: the save that preceded this already renamed it, which is the
+    // common case when a command edits the front matter and then asks for the
+    // rename as well. Nothing left to do, and not an error.
+    return undefined;
+  }
   const renamed = denoteNameFromFrontMatter(pageName, text);
   if (!renamed) {
     return undefined;

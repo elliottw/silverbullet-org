@@ -276,8 +276,14 @@ async function rewriteAndRename(changes: {
     await editor.setText(rewritten);
     await editor.save();
   }
-  const renamed = await renameFromFrontMatter(page);
-  await editor.flashNotification(renamed ? `Renamed to ${renamed}` : "Updated");
+  // `denote.renameOnSave` means the save above may already have renamed the
+  // file; this is for when it is off. Either way what to report is the name
+  // the editor is now showing.
+  await renameFromFrontMatter(page);
+  const now = await editor.getCurrentPage();
+  await editor.flashNotification(
+    now === page ? "Updated" : `Renamed to ${now}`,
+  );
 }
 
 /** `denote-rename-file`: title, keywords and signature, each defaulting to what the note has. */

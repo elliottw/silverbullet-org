@@ -190,6 +190,37 @@ test.describe("Signatures as a sequence", () => {
     expect(text).toContain("#+signature:  21=05");
   });
 
+  test("Add Keywords renames without complaining that the old name is gone", async ({
+    sbPage,
+    sbServer,
+  }) => {
+    // The save that writes the front matter renames the file on its own
+    // (`denote.renameOnSave`), so asking for the rename afterwards finds no
+    // page under the old name. That is not an error, and must not look like
+    // one.
+    await gotoSilverBulletPage(sbPage, sbServer, JD_TERM);
+    await runCommand(sbPage, "Denote: Add Keywords");
+    const filter = sbPage
+      .locator(".sb-modal-box input, .sb-modal input")
+      .first();
+    await expect(filter).toBeVisible({ timeout: 20_000 });
+    await filter.fill("iteam");
+    await expect(
+      sbPage.locator(".sb-result-list .sb-name").first(),
+    ).toContainText("iteam", { timeout: 10_000 });
+    await filter.press("Enter");
+    // Escape ends the keyword prompt, as it does in Denote.
+    await sbPage
+      .locator(".sb-modal-box input, .sb-modal input")
+      .first()
+      .press("Escape");
+    await expect(currentPage(sbPage)).toHaveValue(
+      "20250101T100001==21=01--hydroponics__iteam_term.org",
+      { timeout: 20_000 },
+    );
+    await expect(sbPage.locator(".sb-notification-error")).toHaveCount(0);
+  });
+
   test("Remove Keywords drops one and renames", async ({
     sbPage,
     sbServer,
