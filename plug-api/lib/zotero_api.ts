@@ -310,7 +310,12 @@ export async function getZoteroItem(
 export async function setZoteroItemTags(
   { userId, apiKey, api = zoteroApi }: ZoteroCredentials,
   key: string,
-  tags: string[],
+  /**
+   * The item's whole tag list, since a PATCH replaces it: a caller that only
+   * means to change some of them has to pass the rest back, `type` included
+   * (1 marks a tag an importer added, and Zotero keeps that distinction).
+   */
+  tags: (string | { tag: string; type?: number })[],
   version: number,
   fetchFn: typeof fetch = fetch,
 ): Promise<boolean> {
@@ -322,7 +327,9 @@ export async function setZoteroItemTags(
       "Content-Type": "application/json",
       "If-Unmodified-Since-Version": String(version),
     },
-    body: JSON.stringify({ tags: tags.map((tag) => ({ tag })) }),
+    body: JSON.stringify({
+      tags: tags.map((tag) => (typeof tag === "string" ? { tag } : tag)),
+    }),
   });
   return res.ok;
 }

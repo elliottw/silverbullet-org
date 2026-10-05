@@ -59,6 +59,7 @@ import {
 } from "@silverbulletmd/silverbullet/lib/zotero_sync";
 import {
   denoteFileType,
+  isDenoteNoteFile,
   parseDenoteFrontMatter,
   parseDenoteName,
   rewriteDenoteFrontMatter,
@@ -714,6 +715,29 @@ export async function createReferenceNote(spec: {
   ]
     .filter(Boolean)
     .sort();
+  // The note is written twice -- once by `createDenoteNote`, once with the
+  // reference lines added -- and in between it carries the marker without a
+  // reference yet. The keeper of the marker must not act on that half-state
+  // and rename the file out from under the second write.
+  marking = true;
+  try {
+    return await writeReferenceNote(spec, keywords);
+  } finally {
+    marking = false;
+  }
+}
+
+async function writeReferenceNote(
+  spec: {
+    title: string;
+    item?: string;
+    attachment?: string;
+    fileName?: string;
+    citekey?: string;
+    keywords?: string[];
+  },
+  keywords: string[],
+): Promise<{ page: string; identifier: string }> {
   const page = await createDenoteNote({
     title: spec.title,
     keywords,
@@ -908,6 +932,72 @@ export async function addFileCommand() {
 /** Guards against the sync's own writes re-entering it. */
 let syncing = false;
 
+/** Guards the marker's own writes. */
+let marking = false;
+
+/**
+ * Keeps the reference keyword in step with the front matter.
+ *
+ * `bib` is not a subject -- it is how Emacs finds these notes:
+ * `citar-denote--get-notes` globs the *file names* for `_bib`, which is what
+ * Denote's "metadata in the name" buys. So the marker has to be in the name,
+ * but it is derived from `#+reference:` or `#+zotero:` rather than typed:
+ * added when a note gains one, removed when it loses the last. citar-denote
+ * maintains it the same way, so neither side surprises the other.
+ */
+export async function maintainReferenceKeyword(page: string): Promise<boolean> {
+  const { referenceKeyword } = await zoteroConfig();
+  if (!referenceKeyword || marking || syncing) return false;
+  const parsedName = parseDenoteName(page);
+  if (!parsedName?.identifier || !isDenoteNoteFile(page)) return false;
+  const open = (await currentPage()) === page;
+  let text: string;
+  try {
+    text = open ? await editor.getText() : await space.readPage(page);
+  } catch {
+    return false;
+  }
+  const fileType = denoteFileType(parsedName.extension, text);
+  const parsed = parseDenoteFrontMatter(text, fileType);
+  const keywords =
+    (parsed.hasKeywords
+      ? (parsed.keywords as string[])
+      : parsedName.keywords) ?? [];
+  const isReference = !!referenceOf(text) || !!itemOf(text);
+  const marked = keywords.includes(referenceKeyword);
+  if (isReference === marked) return false;
+  const updated = rewriteDenoteFrontMatter(text, fileType, {
+    keywords: (isReference
+      ? [...new Set([...keywords, referenceKeyword])]
+      : keywords.filter((k) => k !== referenceKeyword)
+    ).sort(),
+  });
+  if (updated === text) return false;
+  marking = true;
+  try {
+    if (open) {
+      if ((await editor.getText()) !== text) return false;
+      await editor.setText(updated);
+      await editor.save();
+    } else {
+      await space.writePage(page, updated);
+      await renameFromFrontMatter(page);
+    }
+  } finally {
+    marking = false;
+  }
+  return true;
+}
+
+/** `page:saved`: the marker follows the front matter, quietly. */
+export async function maintainReferenceKeywordOnSave(page: string) {
+  try {
+    await maintainReferenceKeyword(page);
+  } catch (e: any) {
+    console.warn("[zotero] could not update the reference keyword", e.message);
+  }
+}
+
 /**
  * Reconciles one reference note with its Zotero item: the citekey, once
  * Better BibTeX has minted one, and the keywords against the item's tags.
@@ -994,8 +1084,13 @@ export async function syncReferenceNote(
   // -- which is every device, the first time a drop makes a note.
   const current = creds && item ? await getZoteroItem(creds, item) : undefined;
   if (!entry && !current) return;
+  // Only tags somebody chose. Zotero's *automatic* tags come from importers --
+  // a journal article can arrive with twenty -- and these keywords end up in
+  // the note's file name. They are left exactly as they are: read past here,
+  // and written back untouched on a push.
+  const automatic = (current?.tags ?? []).filter((x) => x.type === 1);
   const zoteroTags = current
-    ? current.tags.map((x) => x.tag)
+    ? current.tags.filter((x) => x.type !== 1).map((x) => x.tag)
     : (entry?.keywords ?? []);
   const push = canPush && !!current;
   const merged = mergeTags({ noteKeywords, zoteroTags, shadow, push });
@@ -1006,7 +1101,7 @@ export async function syncReferenceNote(
     zoteroWritten = await setZoteroItemTags(
       creds!,
       current.key,
-      merged.tags,
+      [...merged.tags.map((tag) => ({ tag })), ...automatic],
       current.version,
     );
   }
@@ -1410,4 +1505,14 @@ export async function syncLibraryWhenStale() {
   } catch (e: any) {
     console.warn("[zotero] could not sync the library", e.message);
   }
+}
+
+/**
+ * The keyword that marks a reference note, which is maintained rather than
+ * chosen -- see `maintainReferenceKeyword`. Exported so the keyword pickers
+ * and the keyword views can leave it out of what they offer and count.
+ */
+export async function referenceKeywordName(): Promise<string> {
+  const { referenceKeyword } = await zoteroConfig();
+  return referenceKeyword;
 }

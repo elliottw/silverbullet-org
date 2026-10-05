@@ -184,6 +184,8 @@ function mockZotero(
     slowList?: number;
     libraryVersion?: number;
     deleted?: string[];
+    /** Tags an importer added, which Zotero marks `type: 1`. */
+    automaticTags?: string[];
   } = {},
 ): Promise<{
   server: Server;
@@ -308,7 +310,16 @@ function mockZotero(
               ...(key === "MOCKKEY1"
                 ? { parentItem: "MOCKPAR1" }
                 : { citationKey: "paper2026" }),
-              tags: (tags.get(key) ?? []).map((tag) => ({ tag })),
+              tags: [
+                ...(tags.get(key) ?? []).map((tag) => ({ tag })),
+                // An importer's tag, which Zotero marks `type: 1`.
+                ...(key === "MOCKPAR1"
+                  ? (options.automaticTags ?? []).map((tag) => ({
+                      tag,
+                      type: 1,
+                    }))
+                  : []),
+              ],
             },
           }),
         );
@@ -1085,5 +1096,131 @@ test.describe("Zotero: keywords on a note SilverBullet made", () => {
     await expect
       .poll(() => mock.tags.get("MOCKPAR1") ?? [], { timeout: 30_000 })
       .toEqual(["psychology", "race"]);
+  });
+});
+
+const MARKER_PORT = MOCK_PORT + 7;
+
+test.describe("Zotero: the bib keyword is derived, not typed", () => {
+  let mock: Awaited<ReturnType<typeof mockZotero>>;
+  test.beforeAll(async () => {
+    mock = await mockZotero({
+      port: MARKER_PORT,
+      library: [],
+      // One tag somebody chose, one an importer added.
+      seedTags: { MOCKPAR1: ["chosen"] },
+      automaticTags: ["imported"],
+    });
+  });
+  test.afterAll(async () => {
+    await new Promise((r) => mock.server.close(r));
+  });
+
+  test.use({
+    spaceFiles: {
+      "index.md": "# Home\n",
+      "zotero.bib": "@misc{other,\n  title = {Other}\n}\n",
+      // A plain note, no reference lines, no marker.
+      "20261005T120000--a-plain-note__topic.org":
+        "#+title:      A plain note\n#+filetags:   :topic:\n#+identifier: 20261005T120000\n\nBody.\n",
+      // A reference note that still carries the marker, about to lose its
+      // reference.
+      "20261005T120100--losing-its-reference__bib_topic.org":
+        "#+title:      Losing its reference\n#+filetags:   :bib:topic:\n#+identifier: 20261005T120100\n#+reference:  other\n\nBody.\n",
+      // A note about an item that holds one chosen tag and one an importer
+      // added.
+      "20261005T120200--auto-tags__bib.org":
+        "#+title:      Auto tags\n#+filetags:   :bib:\n#+identifier: 20261005T120200\n#+zotero:     MOCKPAR1\n#+zotero_tags:\n\n[[zotero:MOCKKEY1][paper.pdf]]\n",
+      "CONFIG.md":
+        "```space-lua\n" +
+        `config.set("zotero", { username = "u", userId = "42", apiKey = "k", api = "http://127.0.0.1:${MARKER_PORT}" })\n` +
+        "```\n",
+    },
+  });
+
+  test("it arrives with a reference and leaves with the last one", async ({
+    sbPage,
+    sbServer,
+  }) => {
+    // Adding a reference line by hand marks the note, and the marker shows up
+    // in the file name -- which is how Emacs finds it.
+    await gotoSilverBulletPage(
+      sbPage,
+      sbServer,
+      "20261005T120000--a-plain-note__topic.org",
+    );
+    await expect(sbPage.locator("#sb-editor .cm-content")).toContainText(
+      "Body.",
+      { timeout: 20_000 },
+    );
+    await sbPage.evaluate(() =>
+      (globalThis as any).sbRuntime.evalLuaScript(`
+        local text = editor.getText()
+        editor.setText((string.gsub(text, "#%+identifier: 20261005T120000", "#+identifier: 20261005T120000\\n#+reference:  other", 1)))
+        editor.save()
+      `),
+    );
+    await expect(currentPage(sbPage)).toHaveValue(
+      "20261005T120000--a-plain-note__bib_topic.org",
+      { timeout: 45_000 },
+    );
+
+    // And removing the reference takes the marker with it.
+    await gotoSilverBulletPage(
+      sbPage,
+      sbServer,
+      "20261005T120100--losing-its-reference__bib_topic.org",
+    );
+    await expect(sbPage.locator("#sb-editor .cm-content")).toContainText(
+      "Body.",
+      { timeout: 20_000 },
+    );
+    await sbPage.evaluate(() =>
+      (globalThis as any).sbRuntime.evalLuaScript(`
+        local text = editor.getText()
+        editor.setText((string.gsub(text, "#%+reference:  other\\n", "", 1)))
+        editor.save()
+      `),
+    );
+    await expect(currentPage(sbPage)).toHaveValue(
+      "20261005T120100--losing-its-reference__topic.org",
+      { timeout: 45_000 },
+    );
+  });
+
+  test("an automatic tag is not a keyword, and survives a push", async ({
+    sbPage,
+    sbServer,
+  }) => {
+    // The item holds one chosen tag and one an importer added; the note is to
+    // take the first and leave the second alone.
+    await gotoSilverBulletPage(
+      sbPage,
+      sbServer,
+      "20261005T120200--auto-tags__bib.org",
+    );
+    // `chosen` arrives; `imported` does not.
+    await expect(currentPage(sbPage)).toHaveValue(
+      "20261005T120200--auto-tags__bib_chosen.org",
+      { timeout: 45_000 },
+    );
+    const text = await sbPage.evaluate(() =>
+      (globalThis as any).sbRuntime.evalLuaScript("return editor.getText()"),
+    );
+    expect(text).not.toContain("imported");
+    // Add a keyword, which pushes -- and the importer's tag must still be there.
+    await sbPage.evaluate(() =>
+      (globalThis as any).sbRuntime.evalLuaScript(`
+        local t = editor.getText()
+        editor.setText((string.gsub(t, "#%+filetags:   :bib:chosen:", "#+filetags:   :bib:chosen:mine:", 1)))
+        editor.save()
+      `),
+    );
+    // The chosen tags are what changed; the importer's is still there.
+    await expect
+      .poll(() => [...(mock.tags.get("MOCKPAR1") ?? [])].sort(), {
+        timeout: 45_000,
+      })
+      .toEqual(["chosen", "imported", "mine"]);
   });
 });

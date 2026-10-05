@@ -55,7 +55,7 @@ import type { FrontMatter } from "./frontmatter.ts";
 import { batchRenameFiles } from "./refactor.ts";
 import type { RelationObject } from "./relation.ts";
 import { buildLineIndex, extractSnippet, orgLinkContext } from "./snippet.ts";
-import { pickEntry } from "./zotero.ts";
+import { pickEntry, referenceKeywordName } from "./zotero.ts";
 
 export type DenoteObject = ObjectValue<{
   tag: "denote";
@@ -400,11 +400,19 @@ export async function createDenoteNote(spec: NewNoteSpec): Promise<string> {
 }
 
 /** Every keyword in the library, with how many notes carry it. */
+/**
+ * Every keyword in the library, with how many notes carry it -- except the
+ * one that marks a reference note, which is maintained from the front matter
+ * rather than chosen (see `maintainReferenceKeyword`). Offering it in a
+ * picker would invite someone to manage machinery by hand.
+ */
 export async function denoteKeywordCounts(): Promise<[string, number][]> {
   const notes = await index.queryLuaObjects<DenoteObject>("denote", {});
+  const marker = await referenceKeywordName();
   const counts = new Map<string, number>();
   for (const note of notes) {
     for (const keyword of note.keywords ?? []) {
+      if (keyword === marker) continue;
       counts.set(keyword, (counts.get(keyword) ?? 0) + 1);
     }
   }

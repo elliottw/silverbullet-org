@@ -359,6 +359,13 @@ functions:
     path: ./zotero.ts:syncReferenceNoteOnOpen
     events:
       - editor:pageLoaded
+  # The `bib` keyword is derived from `#+reference:`/`#+zotero:`, never typed:
+  # Emacs finds reference notes by a file-name glob, so the marker lives in the
+  # name, but keeping it there is this plug's job.
+  zoteroMaintainReferenceKeyword:
+    path: ./zotero.ts:maintainReferenceKeywordOnSave
+    events:
+      - page:saved
   zoteroLinkForItem:
     path: ./zotero.ts:linkForItem
   # Called by the editor plug when a citation or zotero: link is followed.

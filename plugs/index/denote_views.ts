@@ -38,6 +38,7 @@ import {
   denoteJournalOpenOrCreate,
 } from "./denote.ts";
 import { signedNotes } from "./denote_sequence.ts";
+import { referenceKeywordName } from "./zotero.ts";
 
 const prefix = "denote/";
 
@@ -114,6 +115,10 @@ async function renderSignatures(under?: string): Promise<string> {
 
 async function renderKeywords(keyword?: string): Promise<string> {
   const notes = await denoteNotes();
+  // The reference-note marker is machinery, not a subject: it is maintained
+  // from the front matter, and counting it beside real keywords would put a
+  // few hundred notes under a heading nobody chose.
+  const marker = await referenceKeywordName();
   if (keyword) {
     const tagged = notes
       .filter((n) => n.keywords.includes(keyword))
@@ -129,7 +134,10 @@ async function renderKeywords(keyword?: string): Promise<string> {
   }
   const counts = new Map<string, number>();
   for (const n of notes) {
-    for (const k of n.keywords) counts.set(k, (counts.get(k) ?? 0) + 1);
+    for (const k of n.keywords) {
+      if (k === marker) continue;
+      counts.set(k, (counts.get(k) ?? 0) + 1);
+    }
   }
   const rows = [...counts].sort(
     (a, b) => b[1] - a[1] || a[0].localeCompare(b[0]),
