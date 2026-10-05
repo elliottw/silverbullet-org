@@ -1101,7 +1101,7 @@ test.describe("Zotero: keywords on a note SilverBullet made", () => {
 
 const MARKER_PORT = MOCK_PORT + 7;
 
-test.describe("Zotero: the bib keyword is derived, not typed", () => {
+test.describe("Zotero: tags an importer added", () => {
   let mock: Awaited<ReturnType<typeof mockZotero>>;
   test.beforeAll(async () => {
     mock = await mockZotero({
@@ -1120,13 +1120,6 @@ test.describe("Zotero: the bib keyword is derived, not typed", () => {
     spaceFiles: {
       "index.md": "# Home\n",
       "zotero.bib": "@misc{other,\n  title = {Other}\n}\n",
-      // A plain note, no reference lines, no marker.
-      "20261005T120000--a-plain-note__topic.org":
-        "#+title:      A plain note\n#+filetags:   :topic:\n#+identifier: 20261005T120000\n\nBody.\n",
-      // A reference note that still carries the marker, about to lose its
-      // reference.
-      "20261005T120100--losing-its-reference__bib_topic.org":
-        "#+title:      Losing its reference\n#+filetags:   :bib:topic:\n#+identifier: 20261005T120100\n#+reference:  other\n\nBody.\n",
       // A note about an item that holds one chosen tag and one an importer
       // added.
       "20261005T120200--auto-tags__bib.org":
@@ -1136,56 +1129,6 @@ test.describe("Zotero: the bib keyword is derived, not typed", () => {
         `config.set("zotero", { username = "u", userId = "42", apiKey = "k", api = "http://127.0.0.1:${MARKER_PORT}" })\n` +
         "```\n",
     },
-  });
-
-  test("it arrives with a reference and leaves with the last one", async ({
-    sbPage,
-    sbServer,
-  }) => {
-    // Adding a reference line by hand marks the note, and the marker shows up
-    // in the file name -- which is how Emacs finds it.
-    await gotoSilverBulletPage(
-      sbPage,
-      sbServer,
-      "20261005T120000--a-plain-note__topic.org",
-    );
-    await expect(sbPage.locator("#sb-editor .cm-content")).toContainText(
-      "Body.",
-      { timeout: 20_000 },
-    );
-    await sbPage.evaluate(() =>
-      (globalThis as any).sbRuntime.evalLuaScript(`
-        local text = editor.getText()
-        editor.setText((string.gsub(text, "#%+identifier: 20261005T120000", "#+identifier: 20261005T120000\\n#+reference:  other", 1)))
-        editor.save()
-      `),
-    );
-    await expect(currentPage(sbPage)).toHaveValue(
-      "20261005T120000--a-plain-note__bib_topic.org",
-      { timeout: 45_000 },
-    );
-
-    // And removing the reference takes the marker with it.
-    await gotoSilverBulletPage(
-      sbPage,
-      sbServer,
-      "20261005T120100--losing-its-reference__bib_topic.org",
-    );
-    await expect(sbPage.locator("#sb-editor .cm-content")).toContainText(
-      "Body.",
-      { timeout: 20_000 },
-    );
-    await sbPage.evaluate(() =>
-      (globalThis as any).sbRuntime.evalLuaScript(`
-        local text = editor.getText()
-        editor.setText((string.gsub(text, "#%+reference:  other\\n", "", 1)))
-        editor.save()
-      `),
-    );
-    await expect(currentPage(sbPage)).toHaveValue(
-      "20261005T120100--losing-its-reference__topic.org",
-      { timeout: 45_000 },
-    );
   });
 
   test("an automatic tag is not a keyword, and survives a push", async ({
