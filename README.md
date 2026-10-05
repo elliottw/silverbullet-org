@@ -232,18 +232,29 @@ What comes from where:
 | item and attachment keys | the API | the export does not carry them |
 | `file` paths in the `.bib` | the storage path already in your bibliography | it is the one `citar-file-open` on that machine opens files with |
 
-Zotero versions its library, so keeping up is cheap: the first pass reads
-everything (about 30 requests for 3,000 items), and every later one asks only
-what changed since the version the index holds — one request when nothing has.
-A page load syncs when the index is older than `zotero.syncEvery` minutes,
-adding a document syncs immediately so its citekey is there to write into the
-reference note, and `Zotero: Sync Library` does it on demand. `Zotero: Resync
-Library` reads the whole library again.
+Zotero versions its library, so keeping up is cheap — but the first read is
+not. `Zotero: Sync Library` is the command that does it, because it is
+thousands of items over tens of requests: a real library of 4,582 items and
+4,633 attachments took **77 requests and about 150 seconds**. Highlights and
+standalone notes are left out of the query (3,219 of them here, none citable),
+which is most of what makes that bearable.
 
-The file is only written after a pass that read the library completely, so a
-device that has just arrived cannot truncate a bibliography it has not finished
-reading. An item Zotero has no citekey for stays in the index but is left out
-of the file: it cannot be cited.
+Every pass after the first asks only what changed since the version the index
+holds: **one request when nothing has**, about five seconds. So a page load
+refreshes a library older than `zotero.syncEvery` minutes, and adding a
+document syncs at once, so its citekey is there to write into the reference
+note rather than filled in later. A page load never starts the *first* pass —
+two silent minutes is not something a page load should do. `Zotero: Resync
+Library` reads everything again.
+
+Three guards, because this writes the file Emacs cites from. The bibliography
+is only written after a pass that read the library completely, so a device that
+has just arrived cannot truncate what it has not finished reading. It is never
+written when that would drop more than a tenth of its entries — `Zotero: Resync
+Library` is the deliberate way past that. And a library that answers with
+nothing (a key without access, a wrong user id) leaves the file, and the index
+built from it, alone. An item Zotero has no citekey for stays in the index but
+is left out of the file: it cannot be cited.
 
 Two things to know. A device with **no API key** reads the `.bib` instead —
 citations, titles and the pickers all still work, which is what keeps a
