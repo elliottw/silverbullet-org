@@ -764,7 +764,26 @@ function setLine(
   const pad = " ".repeat(Math.max(1, 13 - key.length - 2));
   const rendered = `#+${key}:${pad}${value}`;
   if (line.test(text)) return text.replace(line, rendered);
-  return text.replace(/^(#\+identifier:.*)$/m, `$1\n${rendered}`);
+  // A new line goes after the last one that belongs above it, so the front
+  // matter reads in a stable order however the lines arrived.
+  const order = [
+    "title",
+    "date",
+    "filetags",
+    "identifier",
+    "signature",
+    "reference",
+    "zotero",
+    "zotero_tags",
+  ];
+  const above = order.slice(0, Math.max(1, order.indexOf(key))).reverse();
+  for (const before of above) {
+    const anchor = new RegExp(`^#\\+${before}:.*$`, "im");
+    if (anchor.test(text)) {
+      return text.replace(anchor, (found) => `${found}\n${rendered}`);
+    }
+  }
+  return `${rendered}\n${text}`;
 }
 
 /** The best title on offer for a file about to be added. */
