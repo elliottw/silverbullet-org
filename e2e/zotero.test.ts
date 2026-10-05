@@ -475,6 +475,9 @@ test.describe("Zotero: adding a file", () => {
     expect(note).toContain("#+filetags:   :bib:");
     expect(note).toContain("#+zotero:");
     expect(note).toContain("MOCKPAR1");
+    // An agreed tag set, empty but recorded: without the line a keyword added
+    // here would be read as predating the arrangement and never pushed.
+    expect(note).toMatch(/^#\+zotero_tags:/m);
     expect(note).toContain("[[zotero:MOCKKEY1][paper.pdf]]");
     // A parent to cite, in the chosen collection, with the file as its child.
     const parent = mock.items.find((i) => i.itemType !== "attachment");
@@ -999,5 +1002,83 @@ test.describe("Zotero: a slow library does not swallow a drop", () => {
       )
       .toMatch(/\[\[denote:\d{8}T\d{6}\]\[Paper\]\]/);
     expect(Date.now() - started).toBeLessThan(15_000);
+  });
+});
+
+const OURS_PORT = MOCK_PORT + 6;
+
+/** The note a drop leaves behind: the item key, no tags agreed yet. */
+const OURS_NOTE = `#+title:      Paper
+#+date:       [2026-10-05 Mon 09:39]
+#+filetags:   :bib:
+#+identifier: 20261005T093900
+#+zotero:     MOCKPAR1
+#+zotero_tags:
+
+[[zotero:MOCKKEY1][paper.pdf]]
+`;
+
+test.describe("Zotero: keywords on a note SilverBullet made", () => {
+  let mock: Awaited<ReturnType<typeof mockZotero>>;
+  test.beforeAll(async () => {
+    mock = await mockZotero({ port: OURS_PORT, library: [] });
+  });
+  test.afterAll(async () => {
+    await new Promise((r) => mock.server.close(r));
+  });
+
+  test.use({
+    spaceFiles: {
+      "index.md": "# Home\n",
+      "zotero.bib":
+        "@misc{paper2026,\n  title = {Paper},\n  file = {/Users/elliott/Zotero/storage/MOCKKEY1/paper.pdf}\n}\n",
+      "20261005T093900--paper__bib.org": OURS_NOTE,
+      "CONFIG.md":
+        "```space-lua\n" +
+        `config.set("zotero", { username = "u", userId = "42", apiKey = "k", api = "http://127.0.0.1:${OURS_PORT}" })\n` +
+        "```\n",
+    },
+  });
+
+  test("reach Zotero as tags, without waiting for a library-wide sync", async ({
+    sbPage,
+    sbServer,
+  }) => {
+    await gotoSilverBulletPage(
+      sbPage,
+      sbServer,
+      "20261005T093900--paper__bib.org",
+    );
+    await expect(sbPage.locator("#sb-editor .cm-content")).toContainText(
+      "paper.pdf",
+      { timeout: 20_000 },
+    );
+    // The sync on open fills in the citekey first; let it finish, so the edit
+    // below is not racing it.
+    await expect(sbPage.locator("#sb-editor .cm-content")).toContainText(
+      "paper2026",
+      { timeout: 20_000 },
+    );
+    // Add two keywords, the way `Denote: Add Keywords` does.
+    await sbPage.evaluate(() =>
+      (globalThis as any).sbRuntime.evalLuaScript(`
+        local text = editor.getText()
+        editor.setText((string.gsub(text, "#%+filetags:   :bib:", "#+filetags:   :bib:psychology:race:", 1)))
+        editor.save()
+      `),
+    );
+    // Opening it again is what syncs it; the rename follows the keywords.
+    await expect(currentPage(sbPage)).toHaveValue(
+      "20261005T093900--paper__bib_psychology_race.org",
+      { timeout: 30_000 },
+    );
+    await gotoSilverBulletPage(
+      sbPage,
+      sbServer,
+      "20261005T093900--paper__bib_psychology_race.org",
+    );
+    await expect
+      .poll(() => mock.tags.get("MOCKPAR1") ?? [], { timeout: 30_000 })
+      .toEqual(["psychology", "race"]);
   });
 });

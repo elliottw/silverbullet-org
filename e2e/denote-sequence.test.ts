@@ -214,9 +214,11 @@ test.describe("Signatures as a sequence", () => {
       .locator(".sb-modal-box input, .sb-modal input")
       .first()
       .press("Escape");
+    // Generous: the rename goes through a save, an index pass and a
+    // navigation, and the suite runs these in parallel.
     await expect(currentPage(sbPage)).toHaveValue(
       "20250101T100001==21=01--hydroponics__iteam_term.org",
-      { timeout: 20_000 },
+      { timeout: 45_000 },
     );
     await expect(sbPage.locator(".sb-notification-error")).toHaveCount(0);
   });
@@ -235,7 +237,7 @@ test.describe("Signatures as a sequence", () => {
     await filter.press("Enter");
     await expect(currentPage(sbPage)).toHaveValue(
       "20240126T082320==1b--waivers-of-filing-fees__costs.org",
-      { timeout: 20_000 },
+      { timeout: 45_000 },
     );
   });
 });

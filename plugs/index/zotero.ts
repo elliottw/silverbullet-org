@@ -300,15 +300,17 @@ async function syncState(): Promise<ZoteroSyncObject | undefined> {
 // Citations and references in notes
 // ---------------------------------------------------------------------------
 
-const referenceLine = /^#\+reference:\s*(.+)$/im;
+// `[ \t]*`, not `\s*`: `\s` matches a newline, so an empty line here would
+// capture whatever came next -- the body of the note -- as its value.
+const referenceLine = /^#\+reference:[ \t]*(.+)$/im;
 
 /** The citekey a reference note is about, from its `#+reference:` line. */
 export function referenceOf(text: string): string | undefined {
   return referenceLine.exec(text)?.[1].trim().replace(/^@/, "");
 }
 
-const itemLine = /^#\+zotero:\s*(.+)$/im;
-const syncedLine = /^#\+zotero_tags:\s*(.*)$/im;
+const itemLine = /^#\+zotero:[ \t]*(.+)$/im;
+const syncedLine = /^#\+zotero_tags:[ \t]*(.*)$/im;
 
 /** The Zotero item a reference note is about, from its `#+zotero:` line. */
 export function itemOf(text: string): string | undefined {
@@ -720,10 +722,15 @@ export async function createReferenceNote(spec: {
   let text = await space.readPage(page);
   if (spec.citekey) text = setLine(text, "reference", spec.citekey);
   if (spec.item) text = setLine(text, "zotero", spec.item);
+  // Always, even with nothing in it: this note and the item it is about agree
+  // on an empty set of tags, and recording that is what tells a later sync
+  // that the note is not one that predates the arrangement. Without the line
+  // a keyword added here would never be pushed.
   text = setLine(
     text,
     "zotero_tags",
     (spec.keywords ?? []).map(slugifyTag).join(" "),
+    { keepEmpty: true },
   );
   const body = [
     spec.citekey ? `[cite:@${spec.citekey}]` : "",
@@ -744,9 +751,14 @@ export async function createReferenceNote(spec: {
  * there is none yet -- the place `citar-denote` writes `#+reference:`. An
  * empty value removes the line.
  */
-function setLine(text: string, key: string, value: string): string {
+function setLine(
+  text: string,
+  key: string,
+  value: string,
+  options: { keepEmpty?: boolean } = {},
+): string {
   const line = new RegExp(`^#\\+${key}:.*$`, "im");
-  if (!value) {
+  if (!value && !options.keepEmpty) {
     return text.replace(new RegExp(`^#\\+${key}:.*\\n?`, "im"), "");
   }
   const pad = " ".repeat(Math.max(1, 13 - key.length - 2));
@@ -900,9 +912,13 @@ export async function syncReferenceNote(
   const { syncKeywords, referenceKeyword, userId, apiKey, api } =
     await zoteroConfig();
   if (syncKeywords === "off" || syncing) return;
+  // For the page the editor is showing, the editor is what it says it is:
+  // reading the file instead would hand back a version from before the last
+  // keystroke, and writing that back would undo it.
+  const open = (await currentPage()) === page;
   let text: string;
   try {
-    text = await space.readPage(page);
+    text = open ? await editor.getText() : await space.readPage(page);
   } catch {
     return;
   }
@@ -920,7 +936,10 @@ export async function syncReferenceNote(
     (k) => k !== referenceKeyword,
   );
   const shadow = syncedTagsOf(text);
-  const firstContact = !syncedLine.test(text);
+  // First contact is for a note that predates this arrangement. A note
+  // carrying `#+zotero:` was written by SilverBullet against a real item, so
+  // its keywords are ours to push even before the first sync records a shadow.
+  const firstContact = !syncedLine.test(text) && !itemLine.test(text);
   const canPush =
     syncKeywords === "both" &&
     !!userId &&
@@ -982,9 +1001,13 @@ export async function syncReferenceNote(
   // what the note last agreed on stands.
   const agreed =
     merged.zoteroChanged && push && !zoteroWritten ? shadow : merged.shadow;
-  updated = setLine(updated, "zotero_tags", agreed.join(" "));
+  updated = setLine(updated, "zotero_tags", agreed.join(" "), {
+    keepEmpty: true,
+  });
 
-  if (updated === (await space.readPage(page))) {
+  if (
+    updated === (open ? await editor.getText() : await space.readPage(page))
+  ) {
     return { note: false, zotero: zoteroWritten };
   }
   syncing = true;
@@ -992,7 +1015,12 @@ export async function syncReferenceNote(
     // The page the editor is showing belongs to the editor: writing it
     // underneath would be overwritten by the next save. Its own save then
     // brings the file name in line (`renameFromFrontMatterOnSave`).
-    if ((await currentPage()) === page) {
+    if (open) {
+      // Someone typed while this was deciding: their keystrokes win, and the
+      // next open syncs what they left.
+      if ((await editor.getText()) !== text) {
+        return { note: false, zotero: zoteroWritten };
+      }
       await editor.setText(updated);
       await editor.save();
     } else {
@@ -1082,22 +1110,33 @@ let synchronising = false;
  */
 export async function syncLibrary(
   options: { full?: boolean; force?: boolean } = {},
-): Promise<{ items: number; version: number; wrote: boolean } | undefined> {
+): Promise<
+  | {
+      items: number;
+      version: number;
+      wrote: boolean;
+      incremental: boolean;
+      fetched: number;
+    }
+  | undefined
+> {
   const { userId, apiKey, api, bibliography: bibName } = await zoteroConfig();
   if (!userId || !apiKey || synchronising) return;
   const creds: ZoteroCredentials = { userId, apiKey, api };
   synchronising = true;
   try {
     const state = await syncState();
-    const incremental = !options.full && !!state?.complete;
-    const since = incremental ? state!.version : undefined;
-
     // What the index already holds, by item key, so an incremental pass can
     // merge rather than replace.
     const held = new Map<string, ZoteroObject>();
     for (const o of await index.queryLuaObjects<ZoteroObject>("zotero", {})) {
       if (o.item) held.set(o.item, o);
     }
+    // Incremental only against something: an index that was cleared (a
+    // reindex, a new browser) has nothing to merge into, and asking only for
+    // what changed since would leave it thin for ever.
+    const incremental = !options.full && !!state?.complete && held.size > 0;
+    const since = incremental ? state!.version : undefined;
     const items = new Map<string, ZoteroApiItem>();
     const children = new Map<string, ZoteroApiItem[]>();
     let version = state?.version ?? 0;
@@ -1231,7 +1270,7 @@ export async function syncLibrary(
         force: options.force,
       });
     }
-    return { items: byKey.size, version, wrote };
+    return { items: byKey.size, version, wrote, incremental, fetched };
   } finally {
     synchronising = false;
   }
@@ -1302,8 +1341,9 @@ export async function syncLibraryCommand() {
     return;
   }
   await editor.flashNotification(
-    `${result.items} items, library version ${result.version}` +
-      (result.wrote ? "; bibliography written" : ""),
+    `${result.incremental ? "Refreshed" : "Read the library"}: ` +
+      `${result.fetched} changed, ${result.items} items, v${result.version}` +
+      (result.wrote ? "; bibliography written" : "; bibliography unchanged"),
   );
 }
 
@@ -1312,7 +1352,10 @@ export async function resyncLibraryCommand() {
   await editor.flashNotification("Reading the whole Zotero library…");
   const result = await syncLibrary({ full: true, force: true });
   await editor.flashNotification(
-    result ? `${result.items} items` : "A sync is already running",
+    result
+      ? `Read the library: ${result.items} items, v${result.version}` +
+          (result.wrote ? "; bibliography written" : "; bibliography unchanged")
+      : "A sync is already running",
   );
 }
 

@@ -363,7 +363,9 @@ function libraryTitle(libPath: string): string {
         ? readFileSync(join(staging, libPath), "utf8")
         : libraryOriginal(libPath)
     ).slice(0, 2000);
-    const m = /^#\+title:\s*(.+)$/im.exec(head);
+    // `[ \t]*` rather than `\s*`, which would run past an empty title line
+    // and take the next line's text for the title.
+    const m = /^#\+title:[ \t]*(.+)$/im.exec(head);
     if (m) title = m[1].trim();
   } catch {
     // Not readable: the file name will do.
