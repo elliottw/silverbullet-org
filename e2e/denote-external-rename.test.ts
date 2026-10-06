@@ -31,7 +31,7 @@ test.describe("A note renamed on disk", () => {
     const link = sbPage.locator("#sb-editor .cm-content a.sb-denote-link", {
       hasText: "calisthenics",
     });
-    await expect(link).not.toHaveClass(/page-missing/, { timeout: 20_000 });
+    await expect(link).not.toHaveClass(/sb-wiki-link-missing/, { timeout: 20_000 });
 
     // Emacs gives the note a signature: same identifier, new file name.
     renameSync(join(sbServer.spaceDir, NOTE), join(sbServer.spaceDir, RENAMED));
@@ -48,7 +48,7 @@ test.describe("A note renamed on disk", () => {
         { timeout: 30_000 },
       )
       .toEqual([RENAMED]);
-    await expect(link).not.toHaveClass(/page-missing/);
+    await expect(link).not.toHaveClass(/sb-wiki-link-missing/);
     await link.click();
     await expect(currentPage(sbPage)).toHaveValue(RENAMED, { timeout: 20_000 });
   });

@@ -489,6 +489,9 @@ a.sb-journal-link {
 a.sb-wiki-link-missing,
 .sb-wiki-link-missing>.sb-wiki-link {
   color: var(--editor-wiki-link-page-missing-color);
+  // And a cue that is not a colour: a link pointing nowhere should be
+  // obvious without having to compare two shades.
+  text-decoration: underline dotted;
 }
 
 a.sb-wiki-link-invalid,

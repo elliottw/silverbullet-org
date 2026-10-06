@@ -6,7 +6,11 @@ html {
   // `fg-link` from modus-operandi, overridden to `red-faint` in Elliott's
   // Emacs config -- the same red the notes are read in there.
   --link-color: #7f0000;
-  --link-missing-color: #9e4705;
+  // A link to a note that does not exist reads as grey rather than as a
+  // duller red: "there is nothing there" is a different thing from "this is a
+  // link", and at a glance two dark warm colours are one colour. `fg-dim`
+  // from modus-operandi.
+  --link-missing-color: #595959;
   --link-invalid-color: #bb08e7;
   --meta-color: #650007;
   --meta-subtle-color: #959595;
@@ -205,7 +209,8 @@ html[data-theme="dark"] {
   --highlight-color: rgba(255, 255, 0, 0.5);
   // `red-faint` again, from modus-vivendi this time.
   --link-color: #ff9580;
-  --link-missing-color: #9e4705;
+  // `fg-dim` from modus-vivendi; the light theme's grey is unreadable here.
+  --link-missing-color: #989898;
   --link-invalid-color: #d444f8;
   --meta-color: #d6222e;
   --meta-subtle-color: #959595;

@@ -137,6 +137,9 @@ functions:
       name: "Denote: Insert Today's Links Block"
       requireMode: rw
       requireEditor: page
+  # What a deletion would break -- see `inboundLinksFor`.
+  denoteInboundLinks:
+    path: ./denote.ts:inboundLinksFor
   denoteUpdateDynamicBlocks:
     path: ./denote.ts:updateDynamicBlocksCommand
     command:

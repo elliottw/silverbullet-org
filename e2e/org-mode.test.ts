@@ -334,12 +334,12 @@ test.describe("Bare Org links render", () => {
 
     const existing = editor.locator("a.sb-wiki-link", { hasText: "Bob" });
     await expect(existing).toBeVisible({ timeout: 20_000 });
-    await expect(existing).not.toHaveClass(/sb-wiki-link-page-missing/);
+    await expect(existing).not.toHaveClass(/sb-wiki-link-missing/);
 
     // A link to a page that does not exist is drawn too, marked missing.
     const missing = editor.locator("a.sb-wiki-link", { hasText: "Nobody" });
     await expect(missing).toBeVisible({ timeout: 20_000 });
-    await expect(missing).toHaveClass(/sb-wiki-link-page-missing/);
+    await expect(missing).toHaveClass(/sb-wiki-link-missing/);
 
     // The brackets are gone -- it reads as the page name.
     await expect(editor).not.toContainText("[[Bob]]");

@@ -164,9 +164,29 @@ reads the cursor:
   the description, as an active region does in Emacs; a selected URL is taken
   as the target instead.
 
+A link to a note that is not there reads differently: grey, with a dotted
+underline, rather than the red of a working one. Two shades of red are one
+colour at a glance, and "there is nothing there" is not the same fact as
+"this is a link".
+
 `Denote: Toggle Link Display` (`org-toggle-link-display`) turns the rendering
 off for the session, so every link reads as its source — for repairing link
 syntax by hand.
+
+**Deleting a note says what it would break.** `Page: Delete` counts the links
+pointing at the page and names the notes they are in before it asks:
+
+    Are you sure you would like to delete 20241112T123242--heros-journey-review…?
+
+    3 links point here, from 2 notes:
+      • One that links (2 links)
+      • Another that links
+
+    They will break: a link finds a note by its identifier, and nothing else
+    will carry this one.
+
+That is worth knowing *before* the deletion rather than after, because a
+`denote:` link cannot be repointed: the identifier it names is gone.
 
 In vim's **normal mode**, `Return` follows the link under the cursor —
 `org-return-follows-link`. Anywhere else it stays vim's own `<CR>`, which is

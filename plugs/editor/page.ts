@@ -1,11 +1,47 @@
-import { editor, space } from "@silverbulletmd/silverbullet/syscalls";
+import { editor, space, system } from "@silverbulletmd/silverbullet/syscalls";
 import { notFoundError } from "@silverbulletmd/silverbullet/constants";
+
+/**
+ * What deleting this page would break, as lines for the confirmation.
+ *
+ * A `denote:` link addresses a note by its identifier, so there is no
+ * renaming or repointing after the fact: the links simply stop resolving.
+ * Being told where they are, before saying yes, is the difference between a
+ * decision and a surprise.
+ */
+async function wouldBreak(pageName: string): Promise<string> {
+  let inbound: { page: string; title: string; count: number }[] = [];
+  try {
+    inbound = await system.invokeFunction("index.denoteInboundLinks", pageName);
+  } catch (e: any) {
+    console.warn("[editor] could not check inbound links", e.message);
+    return "";
+  }
+  if (!inbound.length) {
+    return "\n\nNothing links here.";
+  }
+  const total = inbound.reduce((n, l) => n + l.count, 0);
+  const shown = inbound.slice(0, 8);
+  const lines = shown.map(
+    (l) => `  • ${l.title}${l.count > 1 ? ` (${l.count} links)` : ""}`,
+  );
+  if (inbound.length > shown.length) {
+    lines.push(`  • and ${inbound.length - shown.length} more`);
+  }
+  return (
+    `\n\n${total} link${total === 1 ? "" : "s"} point here, from ` +
+    `${inbound.length} note${inbound.length === 1 ? "" : "s"}:\n` +
+    `${lines.join("\n")}\n\nThey will break: a link finds a note by its ` +
+    `identifier, and nothing else will carry this one.`
+  );
+}
 
 export async function deletePage() {
   const pageName = await editor.getCurrentPage();
   if (
     !(await editor.confirm(
-      `Are you sure you would like to delete ${pageName}?`,
+      `Are you sure you would like to delete ${pageName}?` +
+        (await wouldBreak(pageName)),
       { destructive: true },
     ))
   ) {

@@ -1234,6 +1234,45 @@ async function backlinkPagesFor(pageName: string): Promise<Set<string>> {
   return new Set(relations.map((relation) => relation.page));
 }
 
+/**
+ * Who links to a page, and how many links each of them holds.
+ *
+ * For telling someone what a deletion would break: a `denote:` link finds a
+ * note by its identifier, and an identifier belongs to one file, so removing
+ * that file leaves every link to it pointing at nothing.
+ */
+export async function inboundLinksFor(
+  page: string,
+): Promise<{ page: string; title: string; count: number }[]> {
+  const relations = await index.queryLuaObjects<any>(
+    "relation",
+    {
+      objectVariable: "_",
+      where: await lua.parseExpression(
+        `_.to == target and _.kind != "co-mention"`,
+      ),
+    },
+    { target: page },
+  );
+  const counts = new Map<string, number>();
+  for (const relation of relations) {
+    if (relation.page === page) continue; // a link to itself breaks nothing
+    counts.set(relation.page, (counts.get(relation.page) ?? 0) + 1);
+  }
+  if (counts.size === 0) return [];
+  const titles = new Map<string, string>();
+  for (const note of await index.queryLuaObjects<DenoteObject>("denote", {})) {
+    if (note.page && note.title) titles.set(note.page, note.title);
+  }
+  return [...counts]
+    .map(([from, count]) => ({
+      page: from,
+      title: titles.get(from) ?? from,
+      count,
+    }))
+    .sort((a, b) => b.count - a.count || a.title.localeCompare(b.title));
+}
+
 /** Identifiers this page already links to. */
 function linkedIdentifiers(tree: ParseTree): Set<string> {
   const identifiers = new Set<string>();

@@ -239,7 +239,7 @@ export function denoteLinkPlugin(client: Client): Extension {
                     : `zotero://select/items/@${first}`,
                 cssClass: entry
                   ? "sb-wiki-link sb-denote-link sb-zotero-citation"
-                  : "sb-wiki-link sb-denote-link sb-zotero-citation sb-wiki-link-page-missing",
+                  : "sb-wiki-link sb-denote-link sb-zotero-citation sb-wiki-link-missing",
                 callback: (e) => {
                   if (e.altKey) {
                     client.editorView.dispatch({ selection: { anchor: from } });
@@ -456,7 +456,7 @@ export function denoteLinkPlugin(client: Client): Extension {
             : `Page not found: ${target}`;
         const cssClass = page
           ? "sb-wiki-link sb-denote-link"
-          : "sb-wiki-link sb-denote-link sb-wiki-link-page-missing";
+          : "sb-wiki-link sb-denote-link sb-wiki-link-missing";
 
         // A described link hides only its machinery and marks the description,
         // exactly as the external branch above does. That is what lets it stay

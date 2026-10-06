@@ -59,7 +59,7 @@ test.describe("Denote library", () => {
     // needs the page list, so the link starts out marked missing and
     // re-decorates once that arrives — wait for the resolved state.
     const link = sbPage
-      .locator("#sb-editor .sb-denote-link:not(.sb-wiki-link-page-missing)", {
+      .locator("#sb-editor .sb-denote-link:not(.sb-wiki-link-missing)", {
         hasText: "1a  Court Costs Relating to Evictions",
       })
       .first();
@@ -85,7 +85,7 @@ test.describe("Denote library", () => {
     // rendered as working links.
     await expect(
       sbPage
-        .locator("#sb-editor .sb-denote-link.sb-wiki-link-page-missing")
+        .locator("#sb-editor .sb-denote-link.sb-wiki-link-missing")
         .first(),
     ).toBeVisible({ timeout: 10_000 });
   });
@@ -539,7 +539,7 @@ test.describe("Front matter drives the file name", () => {
     // still resolves after the target moved.
     await gotoSilverBulletPage(sbPage, sbServer, HUB);
     const link = sbPage
-      .locator("#sb-editor .sb-denote-link:not(.sb-wiki-link-page-missing)", {
+      .locator("#sb-editor .sb-denote-link:not(.sb-wiki-link-missing)", {
         hasText: "1a  Court Costs Relating to Evictions",
       })
       .first();
@@ -584,7 +584,7 @@ test.describe("Dynamic blocks", () => {
     );
     // The body of a dynamic block is ordinary Org, so its links are real links.
     const link = sbPage
-      .locator("#sb-editor .sb-denote-link:not(.sb-wiki-link-page-missing)", {
+      .locator("#sb-editor .sb-denote-link:not(.sb-wiki-link-missing)", {
         hasText: "Court Costs Relating to Evictions",
       })
       .first();
