@@ -220,6 +220,14 @@ export class MainUI {
     options: FilterOption[],
     helpText = "",
     placeHolder = "",
+    /**
+     * Whether what was typed counts as an answer when it matches nothing in
+     * the list. A picker that can only return a row it already has is the
+     * wrong shape for anything open-ended -- a keyword, a tag, a name -- and
+     * leaves someone typing a perfectly good value that nothing accepts.
+     */
+    allowNew = false,
+    newHint = "new",
   ): Promise<FilterOption | undefined> {
     return new Promise((resolve) => {
       this.viewDispatch({
@@ -228,6 +236,8 @@ export class MainUI {
         options,
         placeHolder,
         helpText,
+        allowNew,
+        newHint,
         onSelect: (option: any) => {
           this.viewDispatch({ type: "hide-filterbox" });
           this.client.focus();
@@ -387,7 +397,8 @@ export class MainUI {
             placeholder={viewState.filterBoxPlaceHolder}
             options={viewState.filterBoxOptions}
             darkMode={viewState.uiOptions.darkMode}
-            allowNew={false}
+            allowNew={viewState.filterBoxAllowNew}
+            newHint={viewState.filterBoxNewHint}
             helpText={viewState.filterBoxHelpText}
             onSelect={viewState.filterBoxOnSelect}
           />

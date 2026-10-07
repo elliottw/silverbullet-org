@@ -444,7 +444,7 @@ export async function promptForKeywords(): Promise<string[] | undefined> {
       },
       {
         name: newKeywordOption,
-        description: "a keyword not yet used in this space",
+        description: "several at once, comma separated",
         orderId: -1,
       },
       ...counts
@@ -459,7 +459,14 @@ export async function promptForKeywords(): Promise<string[] | undefined> {
       options,
       selected.length
         ? `Selected: ${selected.join(", ")} — Enter to add another, Escape when done`
-        : "Pick a keyword, or Escape for none",
+        : "Pick a keyword, or type a new one; Escape when done",
+      "",
+      // Denote's own prompt is `completing-read-multiple`, which completes
+      // what the library already uses and takes anything else you type. A
+      // keyword you have not used before is the ordinary case for a new note,
+      // not an error.
+      true,
+      "new keyword",
     );
     // Escape means "that is all", as an empty answer does in Denote.
     if (!choice || choice.name === doneOption) {

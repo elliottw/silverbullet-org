@@ -141,6 +141,8 @@ export default function reducer(
         filterBoxOptions: action.options,
         filterBoxLabel: action.label,
         filterBoxHelpText: action.helpText,
+        filterBoxAllowNew: action.allowNew ?? false,
+        filterBoxNewHint: action.newHint ?? "new",
       };
     case "hide-filterbox":
       return {
@@ -150,6 +152,8 @@ export default function reducer(
         filterBoxPlaceHolder: "",
         filterBoxOptions: [],
         filterBoxHelpText: "",
+        filterBoxAllowNew: false,
+        filterBoxNewHint: "new",
       };
     case "show-prompt":
       return {

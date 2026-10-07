@@ -51,6 +51,9 @@ export type AppViewState = {
 
   showFilterBox: boolean;
   filterBoxLabel: string;
+  /** Whether the filter box accepts a phrase that matches none of its options. */
+  filterBoxAllowNew: boolean;
+  filterBoxNewHint: string;
   filterBoxPlaceHolder: string;
   filterBoxOptions: FilterOption[];
   filterBoxHelpText: string;
@@ -91,6 +94,8 @@ export const initialViewState: AppViewState = {
   notifications: [],
   showFilterBox: false,
   filterBoxHelpText: "",
+  filterBoxAllowNew: false,
+  filterBoxNewHint: "new",
   filterBoxLabel: "",
   filterBoxOnSelect: () => {},
   filterBoxOptions: [],
@@ -124,6 +129,8 @@ export type Action =
   | { type: "hide-panel"; id: string }
   | {
       type: "show-filterbox";
+      allowNew?: boolean;
+      newHint?: string;
       options: FilterOption[];
       placeHolder: string;
       helpText: string;

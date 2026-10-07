@@ -212,8 +212,22 @@ export function filterBox(
   options: FilterOption[],
   helpText = "",
   placeHolder = "",
+  /**
+   * Accept what was typed when it matches none of the options -- for a
+   * picker over something open-ended, where the answer may not exist yet.
+   */
+  allowNew = false,
+  newHint = "new",
 ): Promise<FilterOption | undefined> {
-  return syscall("editor.filterBox", label, options, helpText, placeHolder);
+  return syscall(
+    "editor.filterBox",
+    label,
+    options,
+    helpText,
+    placeHolder,
+    allowNew,
+    newHint,
+  );
 }
 
 export function showPanel(

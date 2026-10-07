@@ -587,8 +587,17 @@ export function editorSyscalls(client: Client): SysCallMapping {
         options: FilterOption[],
         helpText = "",
         placeHolder = "",
+        allowNew = false,
+        newHint = "new",
       ): Promise<FilterOption | undefined> => {
-        return client.ui.filterBox(label, options, helpText, placeHolder);
+        return client.ui.filterBox(
+          label,
+          options,
+          helpText,
+          placeHolder,
+          allowNew,
+          newHint,
+        );
       },
       description:
         "Shows a filterable option picker similar to the page navigator.",
@@ -602,6 +611,20 @@ export function editorSyscalls(client: Client): SysCallMapping {
           name: "options",
           type: "FilterOption[]",
           description: "The available options.",
+        },
+        {
+          name: "allowNew",
+          type: "boolean",
+          description:
+            "Accept what was typed when it matches none of the options.",
+          optional: true,
+        },
+        {
+          name: "newHint",
+          type: "string",
+          description:
+            "The hint shown beside a typed value, e.g. `new keyword`.",
+          optional: true,
         },
         {
           name: "helpText",
