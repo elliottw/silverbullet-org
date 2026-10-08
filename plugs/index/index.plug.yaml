@@ -187,6 +187,18 @@ functions:
       mac: "Alt-i"
       requireMode: rw
       requireEditor: page
+  # `org-insert-link` (M-I) for somewhere outside the space. Alt-i offers the
+  # library first, which is right for a note and a detour for a web page; a
+  # link to what you were just reading in a browser is frequent enough to have
+  # its own key. The description is prefilled with the page's own title.
+  insertWebLink:
+    path: ./web_link.ts:insertWebLinkCommand
+    command:
+      name: "Denote: Insert Web Link"
+      key: "Shift-Alt-i"
+      mac: "Shift-Alt-i"
+      requireMode: rw
+      requireEditor: page
   # `denote-open-or-create`: what the page picker's create row calls.
   denoteOpenOrCreate:
     path: ./denote.ts:denoteOpenOrCreate

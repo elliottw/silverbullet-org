@@ -49,7 +49,9 @@ import {
   linkSyntaxFor,
   pageLink,
   urlLink,
+  linkFor,
 } from "@silverbulletmd/silverbullet/lib/link_syntax";
+import { insertUrlLink } from "./web_link.ts";
 import { pathFromPageName } from "@silverbulletmd/silverbullet/lib/ref";
 import type { FrontMatter } from "./frontmatter.ts";
 import { batchRenameFiles } from "./refactor.ts";
@@ -685,27 +687,6 @@ export function linkAtPos(tree: ParseTree, pos: number): ParseTree | undefined {
 }
 
 /**
- * A complete link, given a target that may name a scheme or a page.
- *
- * `denote:ID` and `https://…` are targets in their own right; anything else is
- * a page name, which Markdown and Org spell differently. A link with no
- * description shows its target, which is what Org does too.
- */
-export function linkFor(
-  syntax: LinkSyntax,
-  target: string,
-  description: string,
-) {
-  if (!hasLinkScheme(target)) {
-    return pageLink(syntax, target, description || undefined);
-  }
-  if (!description) {
-    return syntax === "org" ? `[[${target}]]` : `<${target}>`;
-  }
-  return urlLink(syntax, target, description);
-}
-
-/**
  * `org-insert-link` on an existing link: its target and description, both
  * offered as they stand. Emptying the target unlinks, leaving the words.
  */
@@ -735,29 +716,6 @@ async function editLink(link: ParseTree, syntax: LinkSyntax): Promise<void> {
       ? linkFor(syntax, target.trim(), description.trim())
       : // No target left: the link becomes the words it was showing.
         description.trim(),
-  );
-}
-
-/** Prompts for a URL and its description, then writes the link. */
-async function insertUrlLink(
-  syntax: LinkSyntax,
-  from: number,
-  to: number,
-  url: string,
-  description: string,
-): Promise<void> {
-  const target = await editor.prompt("URL:", url);
-  if (target === undefined || !target.trim()) {
-    return;
-  }
-  const text = await editor.prompt("Description:", description);
-  if (text === undefined) {
-    return;
-  }
-  await editor.replaceRange(
-    from,
-    to,
-    linkFor(syntax, target.trim(), text.trim()),
   );
 }
 

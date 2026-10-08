@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 import {
   documentLink,
   hasLinkScheme,
+  linkFor,
   innerPageLink,
   linkSyntaxFor,
   orgLinkTarget,
@@ -72,4 +73,23 @@ test("Link schemes are recognised so bare targets can be treated as pages", () =
   expect(hasLinkScheme("mailto:a@b.c")).toBe(true);
   expect(hasLinkScheme("Some Page.org")).toBe(false);
   expect(hasLinkScheme("20240125T164237==1a--x__k.org")).toBe(false);
+});
+
+test("A link takes its shape from what the target is", () => {
+  // A scheme is a target in its own right; anything else names a page.
+  expect(linkFor("org", "https://example.com", "Example")).toEqual(
+    "[[https://example.com][Example]]",
+  );
+  expect(linkFor("org", "https://example.com", "")).toEqual(
+    "[[https://example.com]]",
+  );
+  expect(linkFor("markdown", "https://example.com", "")).toEqual(
+    "<https://example.com>",
+  );
+  expect(linkFor("org", "denote:20240125T164237", "A note")).toEqual(
+    "[[denote:20240125T164237][A note]]",
+  );
+  expect(linkFor("markdown", "Some Page", "its words")).toEqual(
+    "[[Some Page|its words]]",
+  );
 });

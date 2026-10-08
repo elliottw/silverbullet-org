@@ -1,11 +1,7 @@
+import { linkFor } from "@silverbulletmd/silverbullet/lib/link_syntax";
 import { expect, test } from "vitest";
 import { parseOrg } from "../../client/org_parser/parser.ts";
-import {
-  denoteFrontMatter,
-  denoteMetadata,
-  linkAtPos,
-  linkFor,
-} from "./denote.ts";
+import { denoteFrontMatter, denoteMetadata, linkAtPos } from "./denote.ts";
 
 const note = `#+title:      Court Costs Relating to Evictions
 #+date:       [2024-01-25 Thu 16:42]
@@ -103,7 +99,9 @@ test("The cursor finds an external Org link, and a bare one", () => {
 
 test("Off a link there is nothing to edit", () => {
   expect(linkTypeAt(linkPage, linkPage.indexOf("A [["))).toBeUndefined();
-  expect(linkTypeAt(linkPage, linkPage.indexOf("link, an") + 2)).toBeUndefined();
+  expect(
+    linkTypeAt(linkPage, linkPage.indexOf("link, an") + 2),
+  ).toBeUndefined();
 });
 
 test("A target naming a scheme becomes a URL link, a bare one a page link", () => {

@@ -78,3 +78,24 @@ export function documentLink(
   }
   return isImage ? `![[${path}]]` : `[[${path}]]`;
 }
+
+/**
+ * A complete link, given a target that may name a scheme or a page.
+ *
+ * `denote:ID` and `https://…` are targets in their own right; anything else is
+ * a page name, which Markdown and Org spell differently. A link with no
+ * description shows its target, which is what Org does too.
+ */
+export function linkFor(
+  syntax: LinkSyntax,
+  target: string,
+  description: string,
+): string {
+  if (!hasLinkScheme(target)) {
+    return pageLink(syntax, target, description || undefined);
+  }
+  if (!description) {
+    return syntax === "org" ? `[[${target}]]` : `<${target}>`;
+  }
+  return urlLink(syntax, target, description);
+}

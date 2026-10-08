@@ -35,7 +35,10 @@ import type {
   ObjectValue,
   PageMeta,
 } from "@silverbulletmd/silverbullet/type/index";
-import { linkSyntaxFor } from "@silverbulletmd/silverbullet/lib/link_syntax";
+import {
+  linkFor,
+  linkSyntaxFor,
+} from "@silverbulletmd/silverbullet/lib/link_syntax";
 import {
   collectionPaths,
   createParentItem,
@@ -67,7 +70,6 @@ import {
 import {
   createDenoteNote,
   invalidateDenoteIdentifiers,
-  linkFor,
   renameFromFrontMatter,
 } from "./denote.ts";
 import type { FrontMatter } from "./frontmatter.ts";

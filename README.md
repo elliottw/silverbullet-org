@@ -47,6 +47,7 @@ Org outline motions follow `evil-org`, and folding follows `org-cycle`.
 | `Alt-j` / `Alt-k` | Move item down / up | `org-metadown` / `org-metaup` |
 | `Alt-l` / `Alt-h` | Indent / outdent item | `org-metaright` / `org-metaleft` |
 | `Alt-i` | Insert a link, or edit the one at the cursor | `denote-link-or-create` / `org-insert-link` |
+| `Shift-Alt-i` | Insert a web link, described by the page's own title | `org-insert-link` (`org-cliplink`) |
 | `Return` | Follow the link under the cursor (vim normal mode) | `org-return-follows-link` |
 
 `Alt-<letter>` needs a workaround on macOS: Option composes characters (`⌥J`
@@ -61,6 +62,7 @@ and the arrow-key forms work everywhere.
 | `Denote: New Note` | `denote` |
 | `Denote: New Note with Signature` | `denote-signature` |
 | `Denote: Insert or Edit Link` (`Alt-i`) | `denote-link-or-create`, `org-insert-link` |
+| `Denote: Insert Web Link` (`Shift-Alt-i`) | `org-insert-link`, `org-cliplink` |
 | `Zotero: Insert Citation` | `citar-insert-citation` |
 | `Zotero: New Reference Note` | `citar-denote-create-note` |
 | `Zotero: Add File` | — |
@@ -163,6 +165,17 @@ reads the cursor:
   does not exist yet, or link somewhere outside the space. A selection becomes
   the description, as an active region does in Emacs; a selected URL is taken
   as the target instead.
+
+`Shift-Alt-i` is the other half, for a link *out* of the space: straight to
+the URL prompt, where `Alt-i` offers the library first. The description comes
+prefilled with the page's own `<title>`, fetched through the server's proxy —
+`org-cliplink`'s trick, and the reason is searchability. A pasted
+`https://…?utm_source=…` is unreadable and, worse, unfindable: what you will
+look for in a year is the title. Paste the URL, press Return twice, and the
+note holds a link that says what it points at. A page that will not answer —
+behind a login, down, no network — just leaves the description to you; it is
+never a reason to refuse the link. A selection is taken as the description
+already chosen, and a selected URL as the target.
 
 A link to a note that is not there reads differently: grey, with a dotted
 underline, rather than the red of a working one. Two shades of red are one
