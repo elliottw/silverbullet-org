@@ -51,9 +51,10 @@ Org outline motions follow `evil-org`, and folding follows `org-cycle`.
 | `Return` | Follow the link under the cursor (vim normal mode) | `org-return-follows-link` |
 
 `Alt-<letter>` needs a workaround on macOS: Option composes characters (`⌥J`
-arrives as `∆`) and CodeMirror deliberately will not fall back to the base
-layout. These bindings are matched on `event.code`, the physical key. `Mod-. j`
-and the arrow-key forms work everywhere.
+arrives as `∆`, `⌥⇧I` as a dead `ˆ`) and CodeMirror deliberately will not fall
+back to the base layout. These bindings, with Shift and without, are matched on
+`event.code`, the physical key. `Mod-. j` and the arrow-key forms work
+everywhere.
 
 ## Commands
 

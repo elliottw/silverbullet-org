@@ -495,33 +495,40 @@ export function createCommandKeyBindings(client: Client): Extension {
  * which is unaffected by the composition. Only letters that a command actually
  * claims are intercepted, so every other Option combination still types its
  * character.
+ *
+ * Shift makes no difference to any of this -- `⌥⇧I` composes just as `⌥I`
+ * does, and arrives with the same `code` -- so `Shift-Alt-<letter>` bindings
+ * are matched the same way, in their own map.
  */
 function macAltLetterFallback(bindings: KeyBinding[]): Extension {
   if (!isMacLike) {
     return [];
   }
   const byCode = new Map<string, () => boolean>();
+  const byCodeShifted = new Map<string, () => boolean>();
   for (const binding of bindings) {
-    const match = /^Alt-([a-zA-Z])$/.exec(binding.key ?? binding.mac ?? "");
+    const match = /^(Shift-)?Alt-([a-zA-Z])$/.exec(
+      binding.key ?? binding.mac ?? "",
+    );
     if (match && binding.run) {
-      byCode.set(
-        `Key${match[1].toUpperCase()}`,
+      (match[1] ? byCodeShifted : byCode).set(
+        `Key${match[2].toUpperCase()}`,
         binding.run as unknown as () => boolean,
       );
     }
   }
-  if (byCode.size === 0) {
+  if (byCode.size === 0 && byCodeShifted.size === 0) {
     return [];
   }
   return Prec.high(
     EditorView.domEventHandlers({
       keydown: (event) => {
-        // Option alone: with Ctrl or Cmd also held, CodeMirror's own fallback
-        // already works and this would double-handle.
-        if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) {
+        // Option, with Shift or without: when Ctrl or Cmd is also held
+        // CodeMirror's own fallback works and this would double-handle.
+        if (!event.altKey || event.ctrlKey || event.metaKey) {
           return false;
         }
-        const run = byCode.get(event.code);
+        const run = (event.shiftKey ? byCodeShifted : byCode).get(event.code);
         if (!run) {
           return false;
         }

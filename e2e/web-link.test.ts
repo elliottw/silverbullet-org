@@ -51,6 +51,25 @@ test.describe("Insert Web Link", () => {
     },
   });
 
+  /**
+   * `⌥⇧I` as a Mac really sends it: Option composes, so the key is a dead
+   * `ˆ` and only `code` says which letter was pressed. Playwright's
+   * `press("Shift+Alt+i")` sends key "I", which no Mac ever produces.
+   */
+  async function pressShiftOptionI(page: any) {
+    const cdp = await page.context().newCDPSession(page);
+    const shared = {
+      key: "Dead",
+      code: "KeyI",
+      windowsVirtualKeyCode: 73,
+      nativeVirtualKeyCode: 73,
+      modifiers: 1 + 8, // Alt + Shift
+    };
+    await cdp.send("Input.dispatchKeyEvent", { type: "keyDown", ...shared });
+    await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", ...shared });
+    await cdp.detach();
+  }
+
   async function insertWebLink(page: any) {
     await page.evaluate(() => {
       void (globalThis as any).sbRuntime.evalLuaScript(
@@ -140,6 +159,27 @@ test.describe("Insert Web Link", () => {
     await expectText(sbPage).toContain(
       `[Notes](http://127.0.0.1:${MOCK_PORT}/paper)`,
     );
+  });
+
+  test("the key reaches the command on a Mac, where Option composes", async ({
+    sbPage,
+    sbServer,
+  }) => {
+    await gotoSilverBulletPage(
+      sbPage,
+      sbServer,
+      "20261007T120000--reading.org",
+    );
+    const editor = sbPage.locator("#sb-editor .cm-content");
+    await expect(editor).toContainText("Found this:", { timeout: 20_000 });
+    await editor.click();
+
+    await pressShiftOptionI(sbPage);
+    // The prompt opening is the whole assertion: the binding fired, and no
+    // `ˆ` was typed into the note.
+    await expect(prompt(sbPage)).toBeVisible({ timeout: 20_000 });
+    await prompt(sbPage).press("Escape");
+    await expectText(sbPage).not.toContain("ˆ");
   });
 
   test("a page that will not answer still gets its link", async ({
