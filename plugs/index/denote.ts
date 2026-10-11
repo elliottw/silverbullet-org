@@ -902,6 +902,13 @@ export async function renameFromFrontMatter(
   if (renaming) {
     return undefined;
   }
+  // A rename now settles the question; a scheduled one would only find the
+  // old name gone.
+  const pending = renameTimers.get(pageName);
+  if (pending !== undefined) {
+    clearTimeout(pending);
+    renameTimers.delete(pageName);
+  }
   let text: string;
   try {
     text = await space.readPage(pageName);
@@ -917,14 +924,76 @@ export async function renameFromFrontMatter(
   }
   renaming = true;
   try {
-    await batchRenameFiles([
-      [pathFromPageName(pageName), pathFromPageName(renamed)],
-    ]);
+    // The target already being there means this note is in two files, which
+    // its identifier says it cannot be. Fold rather than fail: this text is
+    // the one that was just saved, so it is the one to keep.
+    if (await sameNoteAt(renamed, renamed)) {
+      await space.writePage(renamed, text);
+      if ((await openPage()) === pageName) {
+        await editor.navigate(
+          { path: pathFromPageName(renamed) as `${string}.${string}` },
+          true,
+        );
+      }
+      await space.deletePage(pageName);
+    } else {
+      await batchRenameFiles([
+        [pathFromPageName(pageName), pathFromPageName(renamed)],
+      ]);
+      await reclaimLateSave(pageName, renamed, text);
+    }
   } finally {
     renaming = false;
   }
   invalidateDenoteIdentifiers();
   return renamed;
+}
+
+/**
+ * Whether `page` holds a note whose own front matter says it belongs at
+ * `expected` — the test for "this is the same note, under another name".
+ */
+async function sameNoteAt(page: string, expected: string): Promise<boolean> {
+  let text: string;
+  try {
+    text = await space.readPage(page);
+  } catch {
+    return false; // not there at all, which is the ordinary case
+  }
+  const parsed = parseDenoteName(page);
+  if (!parsed?.identifier) {
+    return false;
+  }
+  return (denoteNameFromFrontMatter(page, text) ?? page) === expected;
+}
+
+/**
+ * Takes back a save that landed on the name the rename just moved away from.
+ *
+ * Renaming an open page writes the new file, deletes the old one and then
+ * navigates the editor across — and the editor saves pending changes before
+ * it leaves, under the name it still thinks it is on. Someone who keeps
+ * typing through all that has their keystrokes written straight back to the
+ * file that was just deleted, leaving the note in two files under one
+ * identifier. It is the newer text, so it is carried over rather than thrown
+ * away; only then is the old name let go.
+ */
+async function reclaimLateSave(
+  oldName: string,
+  newName: string,
+  moved: string,
+): Promise<void> {
+  if (!(await sameNoteAt(oldName, newName))) {
+    return;
+  }
+  const resurrected = await space.readPage(oldName);
+  if (resurrected !== moved) {
+    await space.writePage(newName, resurrected);
+  }
+  await space.deletePage(oldName);
+  console.log(
+    `[denote] a save landed on ${oldName} mid-rename; folded into ${newName}`,
+  );
 }
 
 export async function renameFromFrontMatterCommand() {
@@ -948,7 +1017,60 @@ export async function renameFromFrontMatterOnSave(pageName: string) {
   if (!(await system.getConfig("denote.renameOnSave", true))) {
     return;
   }
+  scheduleRename(pageName);
+}
+
+/**
+ * How long the front matter must sit still before the file name follows it.
+ *
+ * Saves land while a title is still being typed — SilverBullet saves a second
+ * or so after the last keystroke — and renaming on each one renames mid-word:
+ * a title typed as "Acorn Med" and finished as "Acorn Medic" is two renames,
+ * and the second starts while the first is still writing, deleting and
+ * navigating. So the rename waits for the typing to stop.
+ */
+const renameQuietPeriod = 2500;
+
+/** Pages whose rename is waiting on the typing to stop. */
+const renameTimers = new Map<string, number>();
+
+/** The page the editor is showing, or undefined outside one. */
+async function openPage(): Promise<string | undefined> {
   try {
+    return await editor.getCurrentPage();
+  } catch {
+    return undefined;
+  }
+}
+
+function scheduleRename(pageName: string) {
+  const pending = renameTimers.get(pageName);
+  if (pending !== undefined) {
+    clearTimeout(pending);
+  }
+  renameTimers.set(
+    pageName,
+    setTimeout(() => {
+      renameTimers.delete(pageName);
+      void renameWhenSettled(pageName);
+    }, renameQuietPeriod) as unknown as number,
+  );
+}
+
+async function renameWhenSettled(pageName: string) {
+  try {
+    // An open page with unsaved changes is still being written: its front
+    // matter is whatever was typed a moment ago, not what the author means.
+    // The save that follows schedules this again.
+    if ((await openPage()) === pageName) {
+      const [inEditor, onDisk] = await Promise.all([
+        editor.getText(),
+        space.readPage(pageName).catch(() => undefined),
+      ]);
+      if (onDisk === undefined || inEditor !== onDisk) {
+        return;
+      }
+    }
     await renameFromFrontMatter(pageName);
   } catch (e: any) {
     console.warn("[denote] could not rename from front matter", e.message);
