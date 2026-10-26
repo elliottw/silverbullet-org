@@ -314,12 +314,42 @@ functions:
     command:
       name: "Client: Version"
 
+  # Saving a picked file, exposed so the capture commands and anything else
+  # that already holds the bytes share one path to disk and one link format.
+  saveUploadedFile:
+    path: ./upload.ts:saveFile
   uploadFileCommand:
     path: ./upload.ts:uploadFile
     command:
       name: "Upload: File"
       requireMode: rw
       menu: { location: file, group: "5_insert", label: "Insert File..." }
+
+  # Straight to the camera: `capture` is what turns the file picker into a
+  # viewfinder on a phone. An image stays beside the note, where it can be
+  # drawn inline.
+  takePhotoCommand:
+    path: ./upload.ts:uploadFile
+    command:
+      name: "Upload: Take Photo"
+      accept: "image/*"
+      capture: "environment"
+      keepLocal: true
+      requireMode: rw
+      requireEditor: page
+      menu: { location: file, group: "5_insert", label: "Take Photo..." }
+  # No `capture`, so the picker offers the Files browser -- which is where
+  # iOS keeps Scan Documents. A scan is part of the note, so `keepLocal`
+  # holds it there rather than letting a PDF go to Zotero as a reference.
+  scanDocumentCommand:
+    path: ./upload.ts:uploadFile
+    command:
+      name: "Upload: Scan Document"
+      accept: "image/*,application/pdf"
+      keepLocal: true
+      requireMode: rw
+      requireEditor: page
+      menu: { location: file, group: "5_insert", label: "Scan Document..." }
 
   # Outline commands
   outlineMoveUp:

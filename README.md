@@ -494,6 +494,27 @@ To tell the two apart before reaching for either, check the server rather than
 the browser — fetch `/.fs/Library/Std/Plugs/index.plug.js` and grep it for the
 symbol you expect. If it is there, the deploy worked and the browser is stale.
 
+### Photos and scans from a phone
+
+Two commands, both landing the file beside the note and linking it at the
+cursor:
+
+* **`Upload: Take Photo`** — `capture="environment"` on the file input, which
+  is what turns a picker into a viewfinder. Straight to the back camera.
+* **`Upload: Scan Document`** — deliberately *without* `capture`, so the
+  picker offers the Files browser, which is where iOS keeps **Scan
+  Documents** (⋯ in the browser's top right). A web page cannot call
+  VisionKit directly; this is the route to it.
+
+Both are in the File menu and on the top bar on mobile, as the camera and
+crop icons. Both set `keepLocal`, so a scanned PDF stays with the note
+instead of going to Zotero as a reference — a receipt is part of the note,
+not a work to cite.
+
+There is no custom-keyboard plug involved: `actionButtons` with
+`mobile = true` is standard SilverBullet's mechanism for a button on a phone,
+and it is what these use. See [[^Library/Std/Config]] to add your own.
+
 ### The page name in the top bar
 
 A Denote file name runs four facts together — identifier, signature, title,

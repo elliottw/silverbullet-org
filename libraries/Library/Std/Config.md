@@ -508,6 +508,31 @@ config.set("actionButtons", {
     command = "Open Command Palette",
     priority = 1,
   },
+  -- Today's journal entry, made if it is not there yet. The one page a
+  -- journal-keeping library opens more than any other, so it gets a button
+  -- rather than a command palette round trip.
+  {
+    icon = "calendar",
+    description = "Today's journal",
+    command = "Denote: Journal Today",
+    priority = 4,
+    dropdown = false,
+  },
+  -- Phone first: `capture` opens the camera, and a photo belongs in the note.
+  {
+    icon = "camera",
+    description = "Take a photo into this note",
+    command = "Upload: Take Photo",
+    mobile = true,
+    priority = -2,
+  },
+  {
+    icon = "crop",
+    description = "Scan a document into this note",
+    command = "Upload: Scan Document",
+    mobile = true,
+    priority = -3,
+  },
   {
     icon = "chevron-left",
     description = "Go back",
