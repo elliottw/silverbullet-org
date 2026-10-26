@@ -35,8 +35,38 @@ $comment-border: 1px;
 }
 
 #sb-main .cm-editor {
-  font-size: 18px;
+  // 16.5/1.62 rather than 18/1.5: a proportional face sets more characters
+  // per line than a mono one at the same size, so it wants a little less of
+  // it and a little more leading.
+  font-size: 16.5px;
+  line-height: 1.62;
   height: 100%;
+
+  // Code is the one thing that still needs fixed columns. `--editor-font` is
+  // what the editor actually inherits -- `--editor-monospace-font` was only
+  // reaching the navigator, the X-ray and conflict markers, which went
+  // unnoticed while both tokens held the same face.
+  .sb-code,
+  .sb-code-info,
+  .sb-line-code,
+  .sb-line-fenced-code,
+  .sb-line-table-outside,
+  .sb-line-tbl-header {
+    font-family: var(--editor-monospace-font, monospace);
+  }
+
+  // Org bookkeeping: true, necessary, and not something anyone reads. Smaller
+  // and quieter, so the title is what the eye lands on.
+  .sb-frontmatter {
+    font-size: 0.82em;
+    line-height: 1.5;
+  }
+
+  // Signatures and dates line up in columns wherever they are listed.
+  .sb-denote-link,
+  .sb-frontmatter {
+    font-variant-numeric: tabular-nums;
+  }
 
   .cm-content {
     width: 100%;
@@ -380,10 +410,11 @@ $comment-border: 1px;
 
   .sb-hashtag,
   .hashtag {
-    border-radius: 6px;
-    padding: 0 3px;
+    // A pill, not a highlighted word: fully rounded and with room inside it.
+    border-radius: 999px;
+    padding: 0 7px;
     margin: 0 1px 0 0;
-    font-size: 0.9em;
+    font-size: 0.86em;
   }
 
   a.sb-hashtag {

@@ -1,7 +1,9 @@
 // Palette custom properties shared by the editor, the Space Manager, the
 // login page and the setup wizard.
 html {
-  --ui-accent-color: #464cfc;
+  // One warm red for "this is yours". Links keep a blue of their own, so the
+  // two reads stay distinct: red is a mark you made, blue goes somewhere.
+  --ui-accent-color: #d1342a;
   --ui-accent-contrast-color: #eee;
   --primary-button-color: var(--ui-accent-contrast-color);
   --primary-button-background-color: var(--ui-accent-color);
