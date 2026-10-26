@@ -2,7 +2,11 @@ import { parseMarkdown } from "../../client/markdown_parser/parser.ts";
 import { createMockSystem } from "../../plug-api/system_mock.ts";
 import { expect, test } from "vitest";
 import { addParentPointers, renderToText } from "../../plug-api/lib/tree.ts";
-import { completeStates, removeCompletedTasksFromTree } from "./task.ts";
+import {
+  completeStates,
+  isTaskMarkerAt,
+  removeCompletedTasksFromTree,
+} from "./task.ts";
 
 function removeCompleted(md: string): string {
   createMockSystem();
@@ -88,4 +92,30 @@ test("removeCompletedTasks: no completed tasks, no change", () => {
 `;
   const result = removeCompleted(input);
   expect(result).toEqual(input);
+});
+
+// A task ref carries a position, and the state used to be confirmed by
+// reading it at a fixed offset from there. An Org headline two levels deep
+// puts its keyword at exactly that offset, so such a ref passed the check and
+// the keyword was rewritten as if it were a checkbox.
+test("isTaskMarkerAt: a Markdown task marker is one", () => {
+  expect(isTaskMarkerAt("* [ ] a thing", 0, " ")).toBe(true);
+  expect(isTaskMarkerAt("* [x] a thing", 0, "x")).toBe(true);
+  expect(isTaskMarkerAt("* [TODO] a thing", 0, "TODO")).toBe(true);
+  const indented = "text\n* [TODO] a thing";
+  expect(isTaskMarkerAt(indented, 5, "TODO")).toBe(true);
+});
+
+test("isTaskMarkerAt: an Org headline is not, at any depth", () => {
+  // The level-2 case is the one that slipped through: chars 3-7 spell TODO.
+  expect(isTaskMarkerAt("** TODO Call the clinic", 0, "TODO")).toBe(false);
+  expect(isTaskMarkerAt("* TODO gas data from peoples", 0, "TODO")).toBe(false);
+  expect(isTaskMarkerAt("*** DONE Book the room", 0, "DONE")).toBe(false);
+});
+
+test("isTaskMarkerAt: a stale ref pointing at prose is not", () => {
+  expect(isTaskMarkerAt("just some words here", 0, " ")).toBe(false);
+  expect(isTaskMarkerAt("* [ ] a thing", 99, " ")).toBe(false);
+  // Right brackets, wrong state: the ref is out of date.
+  expect(isTaskMarkerAt("* [x] a thing", 0, " ")).toBe(false);
 });

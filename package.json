@@ -34,6 +34,7 @@
     "./lib/transclusion": "./plug-api/lib/transclusion.ts",
     "./lib/native_fetch": "./plug-api/lib/native_fetch.ts",
     "./lib/web_title": "./plug-api/lib/web_title.ts",
+    "./lib/org_todo": "./plug-api/lib/org_todo.ts",
     "./lib/query_expression": "./plug-api/lib/query_expression.ts",
     "./lib/panel_styles": "./plug-api/lib/panel_styles.ts",
     "./type/client": "./plug-api/types/client.ts",

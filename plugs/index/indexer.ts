@@ -17,6 +17,7 @@ import { indexCitations } from "./zotero.ts";
 import { extractFrontMatter, type FrontMatter } from "./frontmatter.ts";
 import { indexHeaders } from "./header.ts";
 import { indexItems } from "./item.ts";
+import { indexOrgTodos } from "./org_todo.ts";
 import { indexPage as pageIndexPage } from "./page.ts";
 import { indexParagraphs } from "./paragraph.ts";
 import { parseDeclaredNames, identityId } from "./identity.ts";
@@ -177,6 +178,7 @@ export const allIndexers: IndexerFunction[] = [
   indexDenote,
   indexCitations,
   indexItems,
+  indexOrgTodos,
   indexHeaders,
   indexParagraphs,
   indexRelations,

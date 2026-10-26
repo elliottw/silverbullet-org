@@ -494,6 +494,44 @@ To tell the two apart before reaching for either, check the server rather than
 the browser — fetch `/.fs/Library/Std/Plugs/index.plug.js` and grep it for the
 symbol you expect. If it is there, the deploy worked and the browser is stale.
 
+### Org TODO keywords
+
+Org keeps a task's state in the headline — `* TODO Buy milk` — and that is
+where most of a real Org library's tasks are. These index as `task` objects,
+the same tag a `- [ ]` checkbox gets, so `index.tasks()` answers with both and
+a home page's "what's outstanding" query covers the whole library rather than
+just its checkboxes.
+
+Which words count is a declared set, not a guess. A file's own `#+TODO:` wins:
+
+```
+#+TODO: TODO NEXT HOLD | DONE CANCELLED
+```
+
+The bar separates open states from closing ones; with no bar Org takes the
+last word as the closing state. Failing that, the space can declare a default
+in the same form — this is what stands in for an Emacs config's
+`org-todo-keywords`:
+
+```space-lua
+config.set("org", { todoKeywords = "TODO NEXT HOLD | DONE CANCELLED" })
+```
+
+And failing that, Org's own `TODO | DONE`.
+
+It has to be a declared set because "a word in capitals" is not one: this
+library has 455 headlines starting with one — `SMB Story`, `PNC as source`,
+`BMW i3` — and every one of them would otherwise have become a todo.
+
+Org's trailing `:tag1:tag2:` comes off the task's text and lands in `tags`, so
+`index.tasks("Inbox")` works and the rendered text stays clean. A `[#A]`
+priority cookie becomes `priority`.
+
+Cycling a state from the editor is not wired up yet: these are indexed and
+queryable, but `Task: Cycle State` still only knows checkboxes. Clicking the
+`[TODO]` in a query's rendered output refuses the write rather than guessing
+(see `isTaskMarkerAt`).
+
 ### Syncing a library with Syncthing
 
 Syncthing works well here — SilverBullet keeps **no database in the space**, so

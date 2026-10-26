@@ -150,6 +150,29 @@ async function cycleTaskState(
   });
 }
 
+/**
+ * Whether `pos` really is the `[state]` marker a task ref promises.
+ *
+ * The brackets are the point. Checking the state text at its expected offset
+ * alone is not enough: a ref into an Org headline two levels deep --
+ * `** TODO Call the clinic`, where the keyword falls exactly where a
+ * Markdown task's state does -- passes that test, and the keyword would be
+ * overwritten with a checkbox state, turning the headline into `** x Call the
+ * clinic`. Org headline tasks are indexed (see `org_todo.ts`) and rendered by
+ * `templates.taskItem` as `* [TODO] …`, so refs like that reach here for real.
+ */
+export function isTaskMarkerAt(
+  text: string,
+  pos: number,
+  state: string,
+): boolean {
+  return (
+    text[pos + 2] === "[" && // 2 because: "* "
+    text.substring(pos + 3, pos + 3 + state.length) === state &&
+    text[pos + 3 + state.length] === "]"
+  );
+}
+
 export async function updateTaskState(
   path: string,
   oldState: string,
@@ -202,13 +225,11 @@ export async function updateTaskState(
             ref.details.column,
           );
 
-    // Check if the task state marker is still there
-    const targetText = editorText.substring(
-      targetPos + 3, // 3 because: "* ["
-      targetPos + 3 + oldState.length,
-    );
-    if (targetText !== oldState) {
-      console.error("Reference not a task marker, out of date?", targetText);
+    if (!isTaskMarkerAt(editorText, targetPos, oldState)) {
+      console.error(
+        "Reference not a task marker, out of date?",
+        editorText.substring(targetPos, targetPos + 3 + oldState.length + 1),
+      );
       return;
     }
     await editor.dispatch({
