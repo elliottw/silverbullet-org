@@ -339,14 +339,15 @@ functions:
       requireEditor: page
       menu: { location: file, group: "5_insert", label: "Take Photo..." }
   # No `capture`, so the picker offers the Files browser -- which is where
-  # iOS keeps Scan Documents. A scan is part of the note, so `keepLocal`
-  # holds it there rather than letting a PDF go to Zotero as a reference.
+  # iOS keeps Scan Documents. A scan goes to Zotero, the document store, which
+  # keeps the file with its reference note and citekey; `preferZotero` is what
+  # sends it there even when the scanner hands back a JPEG rather than a PDF.
   scanDocumentCommand:
     path: ./upload.ts:uploadFile
     command:
       name: "Upload: Scan Document"
       accept: "image/*,application/pdf"
-      keepLocal: true
+      preferZotero: true
       requireMode: rw
       requireEditor: page
       menu: { location: file, group: "5_insert", label: "Scan Document..." }

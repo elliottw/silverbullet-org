@@ -507,9 +507,13 @@ cursor:
   VisionKit directly; this is the route to it.
 
 Both are in the File menu and on the top bar on mobile, as the camera and
-crop icons. Both set `keepLocal`, so a scanned PDF stays with the note
-instead of going to Zotero as a reference — a receipt is part of the note,
-not a work to cite.
+crop icons. They differ in where the file lands, which is the point of having
+two: a **photo** stays beside the note (`keepLocal`), where it can be drawn
+inline; a **scan** goes to Zotero (`preferZotero`), the document store, which
+keeps the file with its reference note and citekey. `preferZotero` has to
+override the content type, because a scanner hands back a JPEG as readily as a
+PDF and a scan is a document either way. With no Zotero configured a scan
+falls back to the note rather than being lost.
 
 There is no custom-keyboard plug involved: `actionButtons` with
 `mobile = true` is standard SilverBullet's mechanism for a button on a phone,

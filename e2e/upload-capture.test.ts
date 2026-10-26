@@ -27,13 +27,14 @@ test.describe("Taking a photo and scanning into a note", () => {
           .get(commandName) ??
         (globalThis as any).client.ui.viewState.commands.get(commandName);
       const def = cmd?.command ?? cmd;
-      return def
-        ? {
-            accept: def.accept,
-            capture: def.capture,
-            keepLocal: def.keepLocal,
-          }
-        : null;
+      if (!def) return null;
+      // Only the keys this feature sets, so an unrelated manifest field
+      // cannot make the assertion churn.
+      const picked: Record<string, unknown> = {};
+      for (const key of ["accept", "capture", "keepLocal", "preferZotero"]) {
+        if (def[key] !== undefined) picked[key] = def[key];
+      }
+      return picked;
     }, name);
 
   test("the camera command asks for the camera, the scan command does not", async ({
@@ -50,18 +51,71 @@ test.describe("Taking a photo and scanning into a note", () => {
       { timeout: 20_000 },
     );
     // `capture` is what turns a file input into a viewfinder on a phone.
-    expect(await commandDef(sbPage, "Upload: Take Photo")).toEqual({
-      accept: "image/*",
-      capture: "environment",
-      keepLocal: true,
-    });
+    await expect
+      .poll(() => commandDef(sbPage, "Upload: Take Photo"), { timeout: 15_000 })
+      .toEqual({
+        accept: "image/*",
+        capture: "environment",
+        keepLocal: true,
+      });
     // The scan deliberately has no `capture`, so the picker offers Files --
     // where iOS keeps Scan Documents.
-    expect(await commandDef(sbPage, "Upload: Scan Document")).toEqual({
-      accept: "image/*,application/pdf",
-      capture: undefined,
-      keepLocal: true,
+    // A scan goes to the document store, whatever file type the scanner
+    // handed back.
+    await expect
+      .poll(() => commandDef(sbPage, "Upload: Scan Document"), {
+        timeout: 15_000,
+      })
+      .toEqual({
+        accept: "image/*,application/pdf",
+        preferZotero: true,
+      });
+  });
+
+  test("a scan falls back to the note when Zotero is not set up", async ({
+    sbPage,
+    sbServer,
+  }) => {
+    await gotoSilverBulletPage(
+      sbPage,
+      sbServer,
+      "20261026T150000--receipts.org",
+    );
+    await expect(sbPage.locator("#sb-editor .cm-content")).toContainText(
+      "Before.",
+      { timeout: 20_000 },
+    );
+    await sbPage.evaluate(() => {
+      void (globalThis as any).sbRuntime.evalLuaScript(
+        "editor.moveCursor(string.len(editor.getText()))",
+      );
     });
+    // No Zotero configured in this space: `preferZotero` asks, it does not
+    // insist, so the scan still lands somewhere rather than being lost.
+    await sbPage.evaluate(() =>
+      (globalThis as any).client.clientSystem.system.invokeFunction(
+        "editor.saveUploadedFile",
+        [
+          {
+            name: "scan.pdf",
+            contentType: "application/pdf",
+            content: new Uint8Array([37, 80, 68, 70]),
+          },
+          { preferZotero: true },
+        ],
+      ),
+    );
+    await expect
+      .poll(
+        () =>
+          sbPage.evaluate(() =>
+            (globalThis as any).sbRuntime.evalLuaScript(
+              "return editor.getText()",
+            ),
+          ),
+        { timeout: 20_000 },
+      )
+      .toMatch(/\[\[file:[^\]]*scan\.pdf\]\]/);
   });
 
   test("an image saved into an Org page is linked as Org, not Markdown", async ({

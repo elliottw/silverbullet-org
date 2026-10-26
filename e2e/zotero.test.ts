@@ -734,6 +734,70 @@ test.describe("Zotero: dropping a document", () => {
     );
     expect((text as string).trimEnd().endsWith("Second line here.")).toBe(true);
   });
+
+  test("a scan goes to Zotero even though it is an image", async ({
+    sbPage,
+    sbServer,
+  }) => {
+    // `Upload: Scan Document` sets `preferZotero`, and has to: a scanner
+    // hands back a JPEG as readily as a PDF, and the type check on its own
+    // would have kept a scan beside the note instead of filing it.
+    await gotoSilverBulletPage(sbPage, sbServer, "Drop.org");
+    const editor = sbPage.locator("#sb-editor .cm-content");
+    await expect(editor).toContainText("Second line here.");
+    await sbPage.waitForTimeout(2500); // config to settle
+
+    const before = mock.calls.length;
+    // Not awaited: the save does not finish until the prompts below are
+    // answered, and awaiting it here would deadlock the test against itself.
+    await sbPage.evaluate(() => {
+      void (globalThis as any).client.clientSystem.system.invokeFunction(
+        "editor.saveUploadedFile",
+        [
+          {
+            name: "receipt-scan.jpg",
+            contentType: "image/jpeg",
+            content: new Uint8Array([255, 216, 255, 224, 1, 2, 3, 4]),
+          },
+          { preferZotero: true },
+        ],
+      );
+    });
+
+    const prompt = sbPage
+      .locator(".sb-modal-box input, .sb-modal input")
+      .first();
+    await expect(prompt).toBeVisible({ timeout: 20_000 });
+    await prompt.press("Enter");
+    const filter = sbPage
+      .locator(".sb-modal-box input, .sb-modal input")
+      .first();
+    await expect(filter).toBeVisible({ timeout: 20_000 });
+    await filter.fill("2026");
+    await filter.press("Enter");
+
+    // It reached the API, and the note links the reference rather than the
+    // image file.
+    await expect
+      .poll(() => mock.calls.slice(before).join("\n"), { timeout: 30_000 })
+      .toMatch(/POST \/users\/42\/items/);
+    await expect
+      .poll(
+        () =>
+          sbPage.evaluate(() =>
+            (globalThis as any).sbRuntime.evalLuaScript(
+              "return editor.getText()",
+            ),
+          ),
+        { timeout: 30_000 },
+      )
+      .toMatch(/\[\[denote:\d{8}T\d{6}\]\[/);
+    const text: string = await sbPage.evaluate(() =>
+      (globalThis as any).sbRuntime.evalLuaScript("return editor.getText()"),
+    );
+    // Not an inline image beside the note.
+    expect(text).not.toMatch(/file:.*receipt-scan/);
+  });
 });
 
 const OWN_PORT = MOCK_PORT + 3;

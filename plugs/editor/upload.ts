@@ -40,11 +40,18 @@ async function denoteName(file: UploadFile): Promise<string | undefined> {
 
 export type SaveOptions = {
   /**
-   * Keep the file beside the note even when it is the sort of document that
-   * would otherwise go to Zotero. A scan of a receipt is part of the note;
-   * it is not a work to cite.
+   * Keep the file beside the note whatever its type. A photo is content --
+   * something to look at in place, not a document to file.
    */
   keepLocal?: boolean;
+  /**
+   * Send it to Zotero whatever its type, which is where a scan belongs:
+   * Zotero is the document store, and it holds the file, the reference note
+   * and the citekey together. This has to override the image check because a
+   * scanner hands back a JPEG as readily as a PDF, and a scan is a document
+   * either way.
+   */
+  preferZotero?: boolean;
 };
 
 export async function saveFile(file: UploadFile, options: SaveOptions = {}) {
@@ -68,32 +75,31 @@ export async function saveFile(file: UploadFile, options: SaveOptions = {}) {
   }
 
   // A document goes to Zotero when that is set up; an image stays beside the
-  // note, where it can be shown inline.
-  if (
-    !options.keepLocal &&
-    !file.contentType.startsWith("image/") &&
-    (await system.invokeFunction("index.zoteroCanAddFiles"))
-  ) {
-    let key: string;
+  // note, where it can be shown inline. Either default can be overridden by
+  // the command that asked for the file, because it knows which of the two it
+  // just produced better than the content type does.
+  const toZotero =
+    options.preferZotero ||
+    (!options.keepLocal && !file.contentType.startsWith("image/"));
+  if (toZotero && (await system.invokeFunction("index.zoteroCanAddFiles"))) {
+    // The same call the paste and drop handlers make: the file to Zotero, a
+    // reference note for it, and the link to write. This used to add the file
+    // and build the link itself, from a key that `index.zoteroAdd` stopped
+    // returning when it grew a parent item and a title -- so the link came
+    // out as `[[zotero:[object Object]]]` and no reference note was made.
     try {
-      key = await system.invokeFunction(
-        "index.zoteroAdd",
+      const link: string = await system.invokeFunction(
+        "index.zoteroAddDocument",
         file.name,
         file.contentType,
         file.content,
+        await editor.getCurrentPath(),
       );
+      if ((await editor.getCurrentEditor()) === "page") {
+        await editor.insertAtCursor(link);
+      }
     } catch (e: any) {
       if (!/Cancelled/.test(String(e.message))) throw e;
-      return;
-    }
-    if ((await editor.getCurrentEditor()) === "page") {
-      const link: string = await system.invokeFunction(
-        "index.zoteroLinkForItem",
-        key,
-        file.name,
-        await editor.getCurrentPage(),
-      );
-      await editor.insertAtCursor(link);
     }
     return;
   }
@@ -155,5 +161,8 @@ export async function uploadFile(
     accept ?? cmdDef?.accept,
     capture ?? cmdDef?.capture,
   );
-  await saveFile(uploadFile, { keepLocal: !!cmdDef?.keepLocal });
+  await saveFile(uploadFile, {
+    keepLocal: !!cmdDef?.keepLocal,
+    preferZotero: !!cmdDef?.preferZotero,
+  });
 }
