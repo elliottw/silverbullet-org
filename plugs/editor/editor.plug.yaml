@@ -11,6 +11,11 @@ functions:
     command:
       name: "Editor: Toggle Dark Mode"
       menu: { location: view, group: "1_toggle", order: 1, label: "Toggle Dark Mode" }
+  toggleVariablePitch:
+    path: "./editor.ts:toggleVariablePitch"
+    command:
+      name: "Editor: Toggle Variable Pitch"
+      menu: { location: view, group: "1_toggle", order: 2, label: "Toggle Variable Pitch" }
   toggleMarkdownSyntaxRendering:
     path: "./editor.ts:toggleMarkdownSyntaxRendering"
     command:

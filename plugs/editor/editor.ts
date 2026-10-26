@@ -30,6 +30,9 @@ export async function setEditorMode() {
   if (darkMode != null) {
     await editor.setUiOption("darkMode", darkMode);
   }
+  if (await clientStore.get("monospacePitch")) {
+    await editor.setUiOption("monospacePitch", true);
+  }
   const markdownSyntaxRendering = await clientStore.get(
     "markdownSyntaxRendering",
   );
@@ -54,6 +57,18 @@ export async function toggleDarkMode() {
   darkMode = !darkMode;
   await clientStore.set("darkMode", darkMode);
   await editor.reloadUI();
+}
+
+/**
+ * `variable-pitch-mode`: prose and the UI in a proportional face or the
+ * monospace one. Only the fonts change -- nothing about the layout, the
+ * measure or what is rendered -- and code stays monospace either way.
+ */
+export async function toggleVariablePitch() {
+  const monospace = !(await editor.getUiOption("monospacePitch"));
+  await clientStore.set("monospacePitch", monospace);
+  await editor.setUiOption("monospacePitch", monospace);
+  await editor.flashNotification(monospace ? "Monospace" : "Variable pitch");
 }
 
 export async function toggleMarkdownSyntaxRendering() {

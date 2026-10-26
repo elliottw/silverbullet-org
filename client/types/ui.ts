@@ -45,6 +45,13 @@ export type AppViewState = {
     vimMode: boolean;
     darkMode?: boolean;
     markdownSyntaxRendering: boolean;
+    /**
+     * Whether prose and the UI are set in the monospace face rather than the
+     * proportional one -- Emacs's `variable-pitch-mode`, turned the other way
+     * up because proportional is the default here. Code stays monospace in
+     * both.
+     */
+    monospacePitch: boolean;
     forcedROMode: boolean;
     customStyles?: string;
   };
@@ -78,6 +85,7 @@ export const initialViewState: AppViewState = {
     vimMode: false,
     darkMode: undefined,
     markdownSyntaxRendering: false,
+    monospacePitch: false,
     forcedROMode: false,
   },
   isMobile: false,

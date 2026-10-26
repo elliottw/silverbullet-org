@@ -180,6 +180,10 @@ html {
     "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji",
     "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
   --editor-font: var(--ui-font);
+  // What `Editor: Toggle Variable Pitch` switches back to: iA Writer Mono in
+  // both roles, as this fork shipped before. Held in a token of its own so
+  // the toggle has one thing to say and the stack stays in one place.
+  --ui-mono-font: "iA-Mono", "Menlo", monospace;
   // Code blocks and the like, which otherwise fall back to generic monospace.
   --editor-monospace-font: "iA-Mono", "Menlo", monospace;
   --editor-width: 800px;
@@ -198,6 +202,13 @@ html {
   --alert-info-border-color: #cfe6fb;
   --badge-background-color: #e8e8ff;
   --badge-color: #464cfc;
+}
+
+// Fonts and nothing else. An attribute selector beats the bare `html` the
+// tokens are declared on, so this holds regardless of source order.
+html[data-pitch="mono"] {
+  --ui-font: var(--ui-mono-font);
+  --editor-font: var(--ui-mono-font);
 }
 
 html[data-theme="light"] {

@@ -341,6 +341,16 @@ export class MainUI {
         : "off";
     }, [viewState.uiOptions.markdownSyntaxRendering]);
 
+    useEffect(() => {
+      // The stylesheet keys the two font tokens off this and nothing else, so
+      // the switch is fonts and only fonts: same measure, same leading, same
+      // layout.
+      document.documentElement.dataset.pitch = viewState.uiOptions
+        .monospacePitch
+        ? "mono"
+        : "variable";
+    }, [viewState.uiOptions.monospacePitch]);
+
     // A navigator dock reserves top-bar space the same way a plug's own
     // sidebar panel does, falling back to that panel's mode when no dock is
     // open so nothing changes for a plug that has one.
