@@ -6,6 +6,8 @@ import { extractFrontMatter } from "./frontmatter.ts";
 import { indexHeaders } from "./header.ts";
 import { indexItems } from "./item.ts";
 import { indexParagraphs } from "./paragraph.ts";
+import { indexSpaceLua } from "./space_lua.ts";
+import { indexSpaceStyle } from "./space_style.ts";
 import { indexTables } from "./table.ts";
 
 // The whole point of emitting Markdown node names from the Org parser is that
@@ -113,4 +115,53 @@ test("A table with a delimiter row still indexes its rows", async () => {
   expect(rows.length).toEqual(1);
   expect(rows[0].name).toEqual("bolt");
   expect(rows[0].cost).toEqual("10");
+});
+
+// `space-lua` and `space-style` are how a space configures itself, and in an
+// Org library they can only arrive as `#+BEGIN_SRC`. Org has no backtick
+// fence, so a Markdown ```space-style block pasted into an Org page is a
+// paragraph and silently does nothing -- which is exactly the way this was
+// first got wrong.
+const orgConfigPage = `#+TITLE: Styling
+
+#+BEGIN_SRC space-style
+html { --ui-font: -apple-system, sans-serif; }
+#+END_SRC
+
+#+BEGIN_SRC space-lua
+config.set("org", { todoKeywords = "TODO | DONE" })
+#+END_SRC
+`;
+
+test("A #+BEGIN_SRC space-style block is picked up from an Org page", async () => {
+  createMockSystem();
+  const tree = parseOrg(orgConfigPage);
+  const frontmatter = extractFrontMatter(tree);
+
+  const styles = await indexSpaceStyle(pageMeta, frontmatter, tree);
+  expect(styles.map((s) => s.style)).toEqual([
+    "html { --ui-font: -apple-system, sans-serif; }",
+  ]);
+
+  const scripts = await indexSpaceLua(pageMeta, frontmatter, tree);
+  expect(scripts.map((s: any) => s.script)).toEqual([
+    'config.set("org", { todoKeywords = "TODO | DONE" })',
+  ]);
+});
+
+test("A Markdown fence in an Org page configures nothing", async () => {
+  createMockSystem();
+  const text = [
+    "#+TITLE: Styling",
+    "",
+    "```space-style",
+    "html { --ui-font: sans-serif; }",
+    "```",
+    "",
+  ].join("\n");
+  const tree = parseOrg(text);
+  const frontmatter = extractFrontMatter(tree);
+  // Not a failure to report -- there is nothing there to find. Worth pinning
+  // so the two syntaxes are never assumed interchangeable.
+  expect(await indexSpaceStyle(pageMeta, frontmatter, tree)).toEqual([]);
 });

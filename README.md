@@ -494,6 +494,26 @@ To tell the two apart before reaching for either, check the server rather than
 the browser — fetch `/.fs/Library/Std/Plugs/index.plug.js` and grep it for the
 symbol you expect. If it is there, the deploy worked and the browser is stale.
 
+### Configuring from an Org page
+
+`space-lua` and `space-style` are how a space configures and themes itself.
+Every upstream doc shows them as a Markdown fence, which an Org page has no
+syntax for — pasted into one it is an ordinary paragraph and silently does
+nothing. In an Org library they are source blocks:
+
+```
+#+BEGIN_SRC space-style
+html { --ui-font: -apple-system, sans-serif; }
+#+END_SRC
+
+#+BEGIN_SRC space-lua
+config.set("org", { todoKeywords = "TODO NEXT | DONE" })
+#+END_SRC
+```
+
+Any page works — there is no designated styles page — and the block takes
+effect on the next load of that page's index.
+
 ### Org TODO keywords
 
 Org keeps a task's state in the headline — `* TODO Buy milk` — and that is
