@@ -60,6 +60,78 @@
           box-shadow: none;
         }
       }
+
+      // The formatted name lies over the input, which stays the one editable
+      // thing: clicking lands on the input and focuses it, which hides the
+      // display again and gives back the file name to edit. Nothing has two
+      // sources of truth and renaming is unchanged.
+      .sb-page-name {
+        position: relative;
+        display: block;
+        width: 100%;
+      }
+
+      .sb-page-name-formatted .sb-input {
+        // Still there, still focusable, still the value anything reads --
+        // just not what is drawn.
+        color: transparent;
+        caret-color: transparent;
+      }
+
+      .sb-denote-name {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        min-width: 0;
+        line-height: 1.35;
+        pointer-events: none;
+      }
+
+      .sb-dn-title {
+        color: var(--top-color);
+        font-weight: 500;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .sb-dn-signature,
+      .sb-dn-keyword {
+        flex: 0 0 auto;
+        font-size: 0.74em;
+        line-height: 1.6;
+        padding: 0 7px;
+        border-radius: 999px;
+        white-space: nowrap;
+      }
+
+      // The address is structural, the keywords are subjects: a different
+      // read for a different kind of fact.
+      .sb-dn-signature {
+        font-family: var(--editor-monospace-font, monospace);
+        font-variant-numeric: tabular-nums;
+        background-color: var(--top-signature-background-color);
+        color: var(--top-signature-color);
+      }
+
+      .sb-dn-keyword {
+        background-color: var(--top-keyword-background-color);
+        color: var(--top-keyword-color);
+      }
+
+      // Last and quietest: an identity, not a label. The full file name is on
+      // its tooltip for when it is the file you actually want.
+      .sb-dn-identifier {
+        flex: 0 0 auto;
+        margin-left: auto;
+        padding-left: 10px;
+        font-size: 0.74em;
+        font-variant-numeric: tabular-nums;
+        color: var(--top-identifier-color);
+        white-space: nowrap;
+      }
     }
   }
 

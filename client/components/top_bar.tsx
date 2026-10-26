@@ -3,6 +3,10 @@ import { createPortal } from "preact/compat";
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { Notification } from "@silverbulletmd/silverbullet/type/client";
 import { Input } from "@silverbulletmd/silverbullet/ui";
+import {
+  denoteIdentifierToDate,
+  parseDenoteName,
+} from "@silverbulletmd/silverbullet/lib/denote";
 
 export type ActionButton = {
   icon: FunctionalComponent<any>;
@@ -155,6 +159,50 @@ function ActionButtons({
   );
 }
 
+/**
+ * A Denote name shown as what it means rather than what it says.
+ *
+ * A file name carries four things -- identifier, signature, title, keywords --
+ * run together with `==`, `--` and `__` so that a plain-text library stays
+ * sortable and greppable. That is the right trade on disk and the wrong one in
+ * a title bar, where there is room to lay them out.
+ *
+ * The identifier sits last and quiet: it is the note's identity, not its
+ * label, and its date is already the most useful thing about it.
+ */
+function DenoteName({ pageName }: { pageName: string }) {
+  const parsed = parseDenoteName(pageName);
+  if (!parsed?.identifier) {
+    return null;
+  }
+  const title = parsed.title
+    ? parsed.title.replaceAll("-", " ")
+    : parsed.identifier;
+  const date = denoteIdentifierToDate(parsed.identifier);
+  return (
+    <span className="sb-denote-name" aria-hidden="true">
+      {parsed.signature && (
+        <span className="sb-dn-signature">{parsed.signature}</span>
+      )}
+      <span className="sb-dn-title">{title}</span>
+      {parsed.keywords.map((keyword) => (
+        <span className="sb-dn-keyword" key={keyword}>
+          {keyword}
+        </span>
+      ))}
+      <span className="sb-dn-identifier" title={pageName}>
+        {date
+          ? date.toLocaleDateString(undefined, {
+              year: "numeric",
+              month: "short",
+              day: "numeric",
+            })
+          : parsed.identifier}
+      </span>
+    </span>
+  );
+}
+
 function PageNameEditor({
   pageName,
   readOnly,
@@ -165,6 +213,10 @@ function PageNameEditor({
   onRename: (newName?: string) => Promise<void>;
 }) {
   const [name, setName] = useState(pageName ?? "");
+  // The formatted name is a display; the input underneath stays the one
+  // editable thing, so renaming is still renaming the file and nothing had to
+  // learn a second way to do it.
+  const [editing, setEditing] = useState(false);
   // Guards against the blur that fires when a successful rename refocuses the
   // editor, which would otherwise trigger a second (same-name) commit.
   const committing = useRef(false);
@@ -188,15 +240,27 @@ function PageNameEditor({
     }
   };
 
+  const formatted =
+    !editing && name === pageName ? <DenoteName pageName={name} /> : null;
+
   return (
-    <Input
-      class="sb-page-name-editor"
-      value={name}
-      readOnly={readOnly}
-      onInput={(e) => setName(e.currentTarget.value)}
-      onConfirm={(value) => commit(value)}
-      onBlur={(e) => commit(e.currentTarget.value)}
-    />
+    <span
+      className={`sb-page-name${formatted ? " sb-page-name-formatted" : ""}`}
+    >
+      {formatted}
+      <Input
+        class="sb-page-name-editor"
+        value={name}
+        readOnly={readOnly}
+        onInput={(e) => setName(e.currentTarget.value)}
+        onConfirm={(value) => commit(value)}
+        onFocus={() => setEditing(true)}
+        onBlur={(e) => {
+          setEditing(false);
+          commit(e.currentTarget.value);
+        }}
+      />
+    </span>
   );
 }
 

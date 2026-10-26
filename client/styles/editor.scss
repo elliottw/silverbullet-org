@@ -408,6 +408,29 @@ $comment-border: 1px;
     transform: rotate(45deg);
   }
 
+  // Org's headline states. A pill rather than a word, because that is what
+  // they are -- and the two read differently on purpose: an open state is a
+  // claim on your attention, a closed one is a record.
+  .sb-org-todo,
+  .sb-org-done {
+    font-size: 0.7em;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    padding: 0.1em 0.5em;
+    border-radius: 999px;
+    vertical-align: 0.08em;
+  }
+
+  .sb-org-todo {
+    background-color: var(--editor-org-todo-background-color);
+    color: var(--editor-org-todo-color);
+  }
+
+  .sb-org-done {
+    background-color: var(--editor-org-done-background-color);
+    color: var(--editor-org-done-color);
+  }
+
   .sb-hashtag,
   .hashtag {
     // A pill, not a highlighted word: fully rounded and with room inside it.

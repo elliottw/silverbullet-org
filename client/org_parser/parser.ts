@@ -1,5 +1,12 @@
 import { foldService, Language, syntaxTree } from "@codemirror/language";
 import {
+  defaultTodoKeywords,
+  mergeTodoKeywords,
+  parseHeadlineTodo,
+  parseTodoSequence,
+  type TodoKeywords,
+} from "@silverbulletmd/silverbullet/lib/org_todo";
+import {
   type Input,
   Parser,
   parseMixed,
@@ -394,6 +401,8 @@ type BlockContext = {
   lines: Line[];
   /** Blocks below this column belong to an enclosing list item, not to us. */
   minIndent: number;
+  /** What counts as a TODO keyword in this document -- see `todoKeywordsOf`. */
+  todoKeywords: TodoKeywords;
 };
 
 /**
@@ -425,11 +434,29 @@ function parseBlocks(
       const [, stars, gap, content] = headline;
       const level = Math.min(stars.length, 6);
       const contentFrom = line.from + stars.length + gap.length;
+      // A leading TODO keyword is a state, not the first word of the title.
+      const todo = parseHeadlineTodo(content, cx.todoKeywords);
+      const keyword = todo?.keyword;
+      const headlineChildren: OrgNode[] = [
+        node("HeaderMark", line.from, line.from + stars.length),
+      ];
+      if (keyword) {
+        headlineChildren.push(
+          node(
+            todo!.done ? "OrgDoneKeyword" : "OrgTodoKeyword",
+            contentFrom,
+            contentFrom + keyword.length,
+          ),
+          ...parseOrgInline(
+            content.slice(keyword.length),
+            contentFrom + keyword.length,
+          ),
+        );
+      } else {
+        headlineChildren.push(...parseOrgInline(content, contentFrom));
+      }
       blocks.push(
-        node(`ATXHeading${level}`, line.from, lineEnd(line), [
-          node("HeaderMark", line.from, line.from + stars.length),
-          ...parseOrgInline(content, contentFrom),
-        ]),
+        node(`ATXHeading${level}`, line.from, lineEnd(line), headlineChildren),
       );
       i++;
       first = false;
@@ -969,11 +996,35 @@ function parseListItem(
 // Entry points
 // ---------------------------------------------------------------------------
 
+/**
+ * The TODO keywords in force for a document: what its own `#+TODO:` lines
+ * declare, else Org's default of `TODO | DONE`.
+ *
+ * Read from the text rather than from config because the parser is pure and
+ * synchronous, and because a file's own declaration is what Org honours first
+ * anyway. The space-wide `org.todoKeywords` setting reaches the indexer, which
+ * decides what is a *task*; this decides what is drawn as a state.
+ */
+export function todoKeywordsOf(lines: Line[]): TodoKeywords {
+  const sequences: TodoKeywords[] = [];
+  for (const line of lines) {
+    const keyword = keywordRegex.exec(line.text);
+    if (keyword && /^(?:seq_|typ_)?todo$/i.test(keyword[3])) {
+      sequences.push(parseTodoSequence(keyword[6] ?? ""));
+    }
+  }
+  return sequences.length > 0
+    ? mergeTodoKeywords(sequences)
+    : defaultTodoKeywords;
+}
+
 export function parseOrgToNode(text: string): OrgNode {
+  const lines = splitLines(text);
   const cx: BlockContext = {
     source: text,
-    lines: splitLines(text),
+    lines,
     minIndent: 0,
+    todoKeywords: todoKeywordsOf(lines),
   };
   return node("Document", 0, text.length, parseBlocks(cx, 0, cx.lines.length));
 }

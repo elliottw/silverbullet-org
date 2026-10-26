@@ -11,6 +11,11 @@ export const OrderedList = Tag.define();
 export const Highlight = Tag.define();
 export const HorizontalRuleTag = Tag.define();
 
+// Org's headline TODO states. Two tags rather than one so a state that is
+// still open and one that is finished can read differently -- which is the
+// whole reason to draw them at all.
+export const OrgTodoKeywordTag = Tag.define();
+export const OrgDoneKeywordTag = Tag.define();
 export const AttributeTag = Tag.define();
 export const AttributeNameTag = Tag.define();
 export const AttributeValueTag = Tag.define();

@@ -184,6 +184,19 @@ html {
   // both roles, as this fork shipped before. Held in a token of its own so
   // the toggle has one thing to say and the stack stays in one place.
   --ui-mono-font: "iA-Mono", "Menlo", monospace;
+
+  // Top bar: a Denote name laid out rather than run together.
+  --top-signature-background-color: #e8ecfb;
+  --top-signature-color: #3b5bdb;
+  --top-keyword-background-color: #fbeae8;
+  --top-keyword-color: #a3251d;
+  --top-identifier-color: #9b938a;
+
+  // An open state carries the accent; a finished one goes quiet.
+  --editor-org-todo-background-color: #d1342a;
+  --editor-org-todo-color: #fff;
+  --editor-org-done-background-color: #ece7df;
+  --editor-org-done-color: #8d857c;
   // Code blocks and the like, which otherwise fall back to generic monospace.
   --editor-monospace-font: "iA-Mono", "Menlo", monospace;
   --editor-width: 800px;
@@ -240,6 +253,17 @@ html[data-theme="dark"] {
 
   --root-background-color: #1b1917;
   --root-color: #ece7e1;
+
+  --top-signature-background-color: #22283f;
+  --top-signature-color: #8da2f0;
+  --top-keyword-background-color: #3a211e;
+  --top-keyword-color: #f8968d;
+  --top-identifier-color: #847b71;
+
+  --editor-org-todo-background-color: #f2675a;
+  --editor-org-todo-color: #1b1917;
+  --editor-org-done-background-color: #2f2a26;
+  --editor-org-done-color: #8c8378;
 
   --top-color: #fff;
   --top-background-color: #262626;

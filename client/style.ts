@@ -14,6 +14,8 @@ export default function highlightStyles() {
     { tag: t.quote, class: "sb-quote" },
     { tag: t.monospace, class: "sb-code" },
     { tag: ct.WikiLinkPartTag, class: "sb-wiki-link" },
+    { tag: ct.OrgTodoKeywordTag, class: "sb-org-todo" },
+    { tag: ct.OrgDoneKeywordTag, class: "sb-org-done" },
     { tag: ct.AttributeTag, class: "sb-frontmatter" },
     { tag: ct.AttributeNameTag, class: "sb-attribute-name" },
     { tag: ct.AttributeValueTag, class: "sb-attribute-value" },

@@ -494,6 +494,19 @@ To tell the two apart before reaching for either, check the server rather than
 the browser — fetch `/.fs/Library/Std/Plugs/index.plug.js` and grep it for the
 symbol you expect. If it is there, the deploy worked and the browser is stale.
 
+### The page name in the top bar
+
+A Denote file name runs four facts together — identifier, signature, title,
+keywords — with `==`, `--` and `__`, which is the right trade on disk and the
+wrong one in a title bar. The bar lays them out instead: the signature as a
+pill, the title as the title, keywords as pills, and the identifier last and
+quiet, shown as its date with the full file name on its tooltip.
+
+The input underneath is untouched and still holds the file name, so renaming
+from the bar is still renaming the file. Focus it — click, or tab to it — and
+the formatted version steps aside so that what you edit is what you see. A
+page that is not a Denote note shows its name, as before.
+
 ### Configuring from an Org page
 
 `space-lua` and `space-style` are how a space configures and themes itself.
@@ -546,6 +559,13 @@ library has 455 headlines starting with one — `SMB Story`, `PNC as source`,
 Org's trailing `:tag1:tag2:` comes off the task's text and lands in `tags`, so
 `index.tasks("Inbox")` works and the rendered text stays clean. A `[#A]`
 priority cookie becomes `priority`.
+
+A keyword is drawn as a pill rather than left as the heading's first word,
+and an open state reads differently from a closed one — the accent for
+something still asking, grey for a record. What counts comes from the file's
+own `#+TODO:`, else Org's `TODO | DONE`; the space-wide `org.todoKeywords`
+setting reaches the indexer, which decides what is a *task*, while the
+highlight follows the file, as Org itself does.
 
 Cycling a state from the editor is not wired up yet: these are indexed and
 queryable, but `Task: Cycle State` still only knows checkboxes. Clicking the
