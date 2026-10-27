@@ -89,7 +89,14 @@
         pointer-events: none;
       }
 
+      // The title takes the room and the others give it up: it is the only
+      // part of the name a person reads, and in a flex row the one shrinkable
+      // item absorbs every bit of squeeze. Left to default `flex`, the title
+      // was the only thing that could shrink, so two keyword pills and a date
+      // kept their full width while it ellipsised away to nothing.
       .sb-dn-title {
+        flex: 1 1 auto;
+        min-width: 3em;
         color: var(--top-color);
         font-weight: 500;
         overflow: hidden;
@@ -99,7 +106,11 @@
 
       .sb-dn-signature,
       .sb-dn-keyword {
-        flex: 0 0 auto;
+        // Shrinkable before the title is, and never past legibility: a pill
+        // clipped mid-word is worse than no pill.
+        flex: 0 1 auto;
+        overflow: hidden;
+        text-overflow: ellipsis;
         font-size: 0.74em;
         line-height: 1.6;
         padding: 0 7px;
@@ -193,6 +204,21 @@
 }
 
 @media only screen and (max-width: 600px) {
+
+  /*
+   * A phone has room for the title and nothing else, so the title gets it
+   * all. Measured at 390px: the bar leaves 222px for the name, and the
+   * signature pill alone was taking 72px of it -- five monospace characters
+   * with a pill's padding -- which is a third of the width for something you
+   * are not reading. The date and keywords went the same way and for the same
+   * reason. All three are still in the note's own front matter, and come back
+   * the moment there is room for them.
+   */
+  #sb-top #sb-current-page .sb-dn-identifier,
+  #sb-top #sb-current-page .sb-dn-keyword,
+  #sb-top #sb-current-page .sb-dn-signature {
+    display: none;
+  }
 
   /* Let the hamburger fly-out escape the top bar's scroll container */
   #sb-top .main {

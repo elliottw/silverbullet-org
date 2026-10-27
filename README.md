@@ -527,6 +527,12 @@ wrong one in a title bar. The bar lays them out instead: the signature as a
 pill, the title as the title, keywords as pills, and the identifier last and
 quiet, shown as its date with the full file name on its tooltip.
 
+On a phone the title takes the whole bar and the rest steps aside. Measured at
+390px there are 222px for the name, and the signature pill alone was taking 72
+of them — five monospace characters with a pill's padding, a third of the width
+for something nobody reads there. All of it is still in the note's own front
+matter, and comes back as soon as the window is wide enough.
+
 The input underneath is untouched and still holds the file name, so renaming
 from the bar is still renaming the file. Focus it — click, or tab to it — and
 the formatted version steps aside so that what you edit is what you see. A

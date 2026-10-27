@@ -86,6 +86,38 @@ test.describe("The page name in the top bar", () => {
     await expect(currentPage(sbPage)).toHaveValue(NAME);
   });
 
+  test("on a phone the title gets the room, and keeps it", async ({
+    sbPage,
+    sbServer,
+  }) => {
+    await sbPage.setViewportSize({ width: 390, height: 844 }); // iPhone-ish
+    await gotoSilverBulletPage(sbPage, sbServer, NAME);
+    await expect(sbPage.locator("#sb-current-page .sb-dn-title")).toBeVisible({
+      timeout: 20_000,
+    });
+
+    // Everything that is not the title gives up its room. The signature was
+    // the expensive one: 72px of a 222px bar for five monospace characters.
+    for (const part of ["identifier", "keyword", "signature"]) {
+      await expect(
+        sbPage.locator(`#sb-current-page .sb-dn-${part}`).first(),
+      ).toBeHidden();
+    }
+
+    // And the title is actually readable rather than ellipsised to a stub:
+    // it is what the whole bar is for.
+    const width = await sbPage.evaluate(() => {
+      const el = document.querySelector("#sb-current-page .sb-dn-title")!;
+      return {
+        shown: Math.round(el.getBoundingClientRect().width),
+        needed: Math.round(el.scrollWidth),
+      };
+    });
+    expect(width.shown).toBeGreaterThanOrEqual(width.needed);
+    // Not merely "fits" -- it has the bar, which is the point of the change.
+    expect(width.shown).toBeGreaterThan(200);
+  });
+
   test("a page that is not a Denote note is left as its name", async ({
     sbPage,
     sbServer,
