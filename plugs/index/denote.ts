@@ -1614,19 +1614,36 @@ async function journalConfig(): Promise<JournalConfig> {
  * day, and it carries the journal keyword. The identifier is what decides the
  * day — not the front matter date, which a user may have edited.
  */
-function isJournalEntryFor(
-  note: DenoteNoteSummary,
+
+/**
+ * The journal entries for one day, newest first, found from file names.
+ *
+ * Deliberately not from the index. The index is a cache that lags: on a cold
+ * start it is still being built, and just after a sync it does not yet know
+ * about an entry another device wrote -- and in both cases a lookup that
+ * misses does not degrade, it creates a second entry for the day and splits
+ * the journal in two. A Denote name carries the date and the keyword, so the
+ * file list answers this on its own, with nothing to catch up on first.
+ */
+async function journalEntryNamesOn(
   stamp: string,
   config: JournalConfig,
-): boolean {
-  const inDirectory = config.directory
-    ? note.name.startsWith(`${config.directory}/`)
-    : true;
-  return (
-    inDirectory &&
-    note.identifier.startsWith(stamp) &&
-    note.keywords.includes(config.keyword)
-  );
+): Promise<string[]> {
+  const pages = await space.listPages();
+  return pages
+    .map((page) => page.name)
+    .filter((name) => {
+      if (config.directory && !name.startsWith(`${config.directory}/`)) {
+        return false;
+      }
+      const parsed = parseDenoteName(name);
+      return (
+        !!parsed?.identifier &&
+        parsed.identifier.startsWith(stamp) &&
+        parsed.keywords.includes(config.keyword)
+      );
+    })
+    .sort((a, b) => b.localeCompare(a));
 }
 
 /** Every journal entry, newest first. */
@@ -1669,11 +1686,9 @@ export async function denoteJournalOpenOrCreate(
     when = now;
   }
   const stamp = journalDateStamp(when);
-  const existing = (await denoteJournalEntries()).filter((note) =>
-    isJournalEntryFor(note, stamp, config),
-  );
+  const existing = await journalEntryNamesOn(stamp, config);
   if (existing.length > 0) {
-    await editor.navigate(pathFromPageName(existing[0].name) as any);
+    await editor.navigate(pathFromPageName(existing[0]) as any);
     return;
   }
   const pageName = await createDenoteNote({

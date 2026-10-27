@@ -494,6 +494,16 @@ To tell the two apart before reaching for either, check the server rather than
 the browser — fetch `/.fs/Library/Std/Plugs/index.plug.js` and grep it for the
 symbol you expect. If it is there, the deploy worked and the browser is stale.
 
+### One journal entry per day
+
+`Denote: Journal Today` opens today's entry and makes one only if there is
+none, and it answers that question from the **file list** rather than the
+object index. The index is a cache that lags — it is still being built on a
+cold start, and it does not yet hold an entry another device wrote and synced
+— and a lookup that misses here does not degrade: it writes a second entry and
+splits the day in two. A Denote name carries the date and the keyword, so the
+file list settles it with nothing to catch up on first.
+
 ### Photos and scans from a phone
 
 Two commands, both landing the file beside the note and linking it at the
