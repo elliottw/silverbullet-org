@@ -482,13 +482,24 @@ While you are actively deploying, set:
 SB_DISABLE_SERVICE_WORKER=1
 ```
 
+The server tests the variable for *non-emptiness*, not for truth
+(`env_nonempty("SB_DISABLE_SERVICE_WORKER").is_some()`), so
+`SB_DISABLE_SERVICE_WORKER=0` still disables the worker. To turn offline back
+on, delete the line.
+
 That does more than skip registration: the client tears down any worker already
 installed and flushes its caches on the next load. You lose offline use and gain
 "what I deployed is what I see", which is the better trade while the code is
 moving. Unset it when you want offline back.
 
 Without it, the fix is manual, per browser: DevTools → Application → Service
-Workers → Unregister, then reload.
+Workers → Unregister, then reload. On a phone, where there are no DevTools,
+the reliable move is Settings → Safari → Advanced → Website Data and remove
+the site, or close every tab on it and reopen.
+
+**Session length** is `SB_REMEMBER_ME_HOURS`, defaulting to 168 (a week).
+`720` is thirty days. A device token, which is a separate thing, defaults to a
+year — `SB_APP_TOKEN_EXPIRY_DAYS`.
 
 To tell the two apart before reaching for either, check the server rather than
 the browser — fetch `/.fs/Library/Std/Plugs/index.plug.js` and grep it for the
