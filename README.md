@@ -579,6 +579,25 @@ config.set("org", { todoKeywords = "TODO NEXT | DONE" })
 Any page works — there is no designated styles page — and the block takes
 effect on the next load of that page's index.
 
+### An outline laid out, not sized
+
+`org-indent-mode`, roughly, with `indent-bars` over the top: a heading sits
+one step in from its parent and the text under it one step further, so depth
+reads off the left edge. Type size is then constant down the whole document
+and weight carries the hierarchy — 700, 600, 500, then body copy from the
+fourth level on, where a heading is a label on a passage and its indent
+already says where it sits.
+
+Every line gets a depth, not only headings. That is what makes it an outline
+rather than a run of differently-placed titles, and it gives the guide bars
+something continuous to paint against: one hairline per level crossed, drawn
+in the indent it opened up, at the same x on adjacent lines so the marks join
+into rules down a subtree.
+
+Two knobs, both in `theme.scss`: `--sb-outline-step` (1.1rem) and
+`--editor-outline-guide-color`. The depth itself comes from
+`outlineIndentPlugin`, which sets `--sb-outline-depth` per line.
+
 ### Org TODO keywords
 
 Org keeps a task's state in the headline — `* TODO Buy milk` — and that is

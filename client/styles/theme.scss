@@ -193,6 +193,10 @@ html {
   --top-identifier-color: #9b938a;
 
   // An open state carries the accent; a finished one goes quiet.
+  // One step per outline level, and the hairline drawn in it.
+  --sb-outline-step: 1.1rem;
+  --editor-outline-guide-color: #e6dfd7;
+
   --editor-org-todo-background-color: #d1342a;
   --editor-org-todo-color: #fff;
   --editor-org-done-background-color: #ece7df;
@@ -259,6 +263,8 @@ html[data-theme="dark"] {
   --top-keyword-background-color: #3a211e;
   --top-keyword-color: #f8968d;
   --top-identifier-color: #847b71;
+
+  --editor-outline-guide-color: #332e2a;
 
   --editor-org-todo-background-color: #f2675a;
   --editor-org-todo-color: #1b1917;

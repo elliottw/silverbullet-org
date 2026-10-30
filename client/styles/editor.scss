@@ -104,10 +104,38 @@ $comment-border: 1px;
     // edge otherwise, and a quote's bar breaks at every padded line.
     --sb-line-pad-y: 0px;
 
-    padding-left: var(--sb-indent);
+    // Outline depth, set per line by `outlineIndentPlugin`. Deliberately not
+    // part of `--sb-indent`: the negative `text-indent` below cancels that
+    // one so a list marker hangs, and an outline indent has to move the
+    // first row too or a heading sits flush left under its own body.
+    --sb-outline-depth: 0;
+    --sb-outline-indent: calc(var(--sb-outline-depth) * var(--sb-outline-step));
+
+    position: relative;
+    padding-left: calc(var(--sb-indent) + var(--sb-outline-indent));
     padding-top: var(--sb-line-pad-y);
     padding-bottom: var(--sb-line-pad-y);
     text-indent: calc(-1 * (var(--sb-indent) + var(--sb-header-hang)));
+
+    // One hairline per level crossed, in the indent it opened up. Adjacent
+    // lines paint the same x positions, so the marks join into continuous
+    // rules down a subtree -- which is the whole point: you read the depth
+    // off the bars rather than off the type.
+    //
+    // On a pseudo-element rather than the line's own background, which a
+    // blockquote's dashed bar already owns.
+    &::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: var(--sb-outline-indent);
+      pointer-events: none;
+      background-image: repeating-linear-gradient(to right,
+          var(--editor-outline-guide-color) 0 1px,
+          transparent 1px var(--sb-outline-step));
+    }
 
     &.sb-line-h1,
     &.sb-line-h2,
@@ -115,7 +143,6 @@ $comment-border: 1px;
     &.sb-line-h4,
     &.sb-line-h5,
     &.sb-line-h6 {
-      font-weight: bold;
       // Vertical breathing room above/below the heading without indenting
       // the heading text away from the body column.
       --sb-line-pad-y: 2px;
@@ -126,21 +153,17 @@ $comment-border: 1px;
     background-color: var(--editor-directive-background-color);
   }
 
+  // One size for the whole document, weight for the hierarchy. A size scale
+  // has to pick a smallest heading, and at four levels deep -- which this
+  // library reaches often -- the last two are the same size anyway and the
+  // outline stops being legible. Weight descends to body copy instead, and
+  // the indent carries the depth.
   .sb-line-h1,
-  h1 {
-    font-size: 1.5em;
-  }
-
+  h1,
   .sb-line-h2,
-  h2 {
-    font-size: 1.2em;
-  }
-
+  h2,
   .sb-line-h3,
-  h3 {
-    font-size: 1.1em;
-  }
-
+  h3,
   .sb-line-h4,
   h4,
   .sb-line-h5,
@@ -148,6 +171,32 @@ $comment-border: 1px;
   .sb-line-h6,
   h6 {
     font-size: 1em;
+  }
+
+  .sb-line-h1,
+  h1 {
+    font-weight: 700;
+  }
+
+  .sb-line-h2,
+  h2 {
+    font-weight: 600;
+  }
+
+  .sb-line-h3,
+  h3 {
+    font-weight: 500;
+  }
+
+  // Body-copy weight: past the third level a heading is a label on a passage,
+  // and its indent already says where it sits.
+  .sb-line-h4,
+  h4,
+  .sb-line-h5,
+  h5,
+  .sb-line-h6,
+  h6 {
+    font-weight: 400;
   }
 
   // If a header only contains a tag, it's likely a line containging "#" which may turn into a hashtag, so style it as such instead of a header
