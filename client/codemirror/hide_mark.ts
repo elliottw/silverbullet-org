@@ -99,6 +99,7 @@ export function hideHeaderMarkPlugin() {
 
           return;
         }
+        const spacePos = line.indexOf(" ");
         if (isCursorInRange(state, [from, to])) {
           // A line decoration anchored anywhere but a line start is discarded
           // in silence, and a heading inside a blockquote or a list item does
@@ -108,10 +109,22 @@ export function hideHeaderMarkPlugin() {
               state.doc.lineAt(from).from,
             ),
           );
+          if (spacePos !== -1) {
+            // The revealed marker run, boxed so that it occupies exactly the
+            // hang the line pulls back -- see `.sb-header-mark`. Without the
+            // box the two are only as equal as `ch` is to the width of an
+            // asterisk, which in a proportional font it is not, and the
+            // heading's text slides sideways as the caret arrives.
+            widgets.push(
+              Decoration.mark({ class: "sb-header-mark" }).range(
+                from,
+                from + spacePos + 1,
+              ),
+            );
+          }
           return;
         }
 
-        const spacePos = line.indexOf(" ");
         if (spacePos === -1) {
           // Not complete header
           return;

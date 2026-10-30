@@ -357,6 +357,19 @@ $comment-border: 1px;
     }
   }
 
+  // The revealed marker run occupies exactly the hang the line pulls back, by
+  // construction rather than by arithmetic: the `ch` values below are the
+  // width of a `0`, which equalled the width of an asterisk only while the
+  // editor was monospace. The glyphs are left to their natural width inside
+  // the box -- they are markup, and a hair of slack in them is invisible,
+  // where a hair of slack in the heading text is a jump as the caret lands.
+  .sb-header-mark {
+    display: inline-block;
+    width: var(--sb-header-hang);
+    white-space: pre;
+    overflow: visible;
+  }
+
   // Hanging-indent for the leading `#`-markers in cursor-in mode. Contributed
   // as the line's hang rather than written as a `text-indent` of its own: that
   // would *replace* the negative indent `.cm-line` computes from `--sb-indent`
