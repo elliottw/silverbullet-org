@@ -579,6 +579,20 @@ config.set("org", { todoKeywords = "TODO NEXT | DONE" })
 Any page works — there is no designated styles page — and the block takes
 effect on the next load of that page's index.
 
+### Bare URLs
+
+A bare `https://…` in running text is an Org plain link, and these notes are
+full of them — pasted into journal entries mid-sentence. They now parse as
+`NakedURL`, the same node the Markdown side emits, so they pick up its colour,
+its pointer cursor and its click-to-open without any new wiring.
+
+The pattern is the Markdown parser's own `nakedUrlRegex` rather than a second
+one, because the hard part is where a URL *stops*: a trailing comma or full
+stop belongs to the sentence, not the address, and having two answers to that
+would be worse than having one imperfect one. The rule sits after the `[[…]]`
+branch, so a URL inside a bracketed link is already consumed and never matches
+twice.
+
 ### An outline laid out, not sized
 
 `org-indent-mode`, roughly, with `indent-bars` over the top: a heading sits

@@ -1,4 +1,5 @@
 import { foldService, Language, syntaxTree } from "@codemirror/language";
+import { nakedUrlRegex } from "../markdown_parser/constants.ts";
 import {
   defaultTodoKeywords,
   mergeTodoKeywords,
@@ -184,10 +185,27 @@ export function parseOrgInline(text: string, offset: number): OrgNode[] {
       }
     }
     if (char === "[") {
-      const link = parseOrgLink(text, i, offset) ?? parseOrgCitation(text, i, offset);
+      const link =
+        parseOrgLink(text, i, offset) ?? parseOrgCitation(text, i, offset);
       if (link) {
         result.push(link.node);
         i = link.end - 1;
+        continue;
+      }
+    }
+    // A bare `https://…` in running text -- Org calls it a plain link, and
+    // this library is full of them, pasted straight into journal entries.
+    // The pattern is the Markdown parser's own, so both syntaxes agree on
+    // where a URL ends, which is the hard part: trailing punctuation belongs
+    // to the sentence rather than the address.
+    //
+    // After the bracket branch above, so a URL inside `[[…]]` has already
+    // been consumed and is never matched twice.
+    if (char === "h") {
+      const url = nakedUrlRegex.exec(text.slice(i));
+      if (url) {
+        result.push(node("NakedURL", offset + i, offset + i + url[0].length));
+        i += url[0].length - 1;
         continue;
       }
     }

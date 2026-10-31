@@ -318,3 +318,44 @@ test("A bracket with no citekey is not a citation", () => {
   expect(collectNodesOfType(tree, "OrgCitation").length).toEqual(0);
   expect(collectNodesOfType(tree, "OrgLink").length).toEqual(1);
 });
+
+// A bare URL in running text is an Org plain link. These notes are full of
+// them -- pasted into journal entries mid-sentence -- and the hard part is
+// where the URL stops: the trailing punctuation belongs to the sentence.
+test("A bare https URL in running text is a NakedURL", () => {
+  const urls = (text: string) =>
+    collectNodesOfType(parseOrg(text), "NakedURL").map((n) =>
+      renderToText(n),
+    );
+
+  expect(urls("called https://www.emdria.org/directory/people/x/ left vmail"))
+    .toEqual(["https://www.emdria.org/directory/people/x/"]);
+  // Sentence punctuation is not part of the address.
+  expect(urls("see https://example.com/a, then stop.")).toEqual([
+    "https://example.com/a",
+  ]);
+  expect(urls("- https://example.com/page not taking new clients")).toEqual([
+    "https://example.com/page",
+  ]);
+  // Two on one line, both found.
+  expect(urls("https://a.example.com and https://b.example.com")).toEqual([
+    "https://a.example.com",
+    "https://b.example.com",
+  ]);
+  // Not a URL, and not a false positive on a word starting with h.
+  expect(urls("however, nothing here")).toEqual([]);
+});
+
+test("A URL already inside a bracketed link is not matched twice", () => {
+  const tree = parseOrg("see [[https://example.com][the page]] for more");
+  expect(collectNodesOfType(tree, "NakedURL")).toEqual([]);
+  // Still the Org link it was.
+  expect(collectNodesOfType(tree, "OrgLink").length).toBe(1);
+});
+
+test("A bare URL inside emphasis nests rather than overlapping", () => {
+  const tree = parseOrg("*see https://example.com now*");
+  const urls = collectNodesOfType(tree, "NakedURL");
+  expect(urls.length).toBe(1);
+  expect(renderToText(urls[0])).toEqual("https://example.com");
+});
