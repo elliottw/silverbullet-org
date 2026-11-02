@@ -579,6 +579,32 @@ config.set("org", { todoKeywords = "TODO NEXT | DONE" })
 Any page works — there is no designated styles page — and the block takes
 effect on the next load of that page's index.
 
+### Searching every note
+
+`Alt-/` opens **Search Notes**, which is `consult-denote-grep`'s shape: type,
+see matching **lines** from the whole library narrowing as you go, press Return
+to land on the line. A page picker finds pages; this finds the sentence you
+half remember.
+
+It is a `view.define` with `search = "source"`, so the query re-runs against
+what you have typed rather than filtering a list handed over in advance — the
+library is far too big for the latter. Four object tags carry a note's text
+(`paragraph`, `item`, `task`, `header`), because the indexer splits a page by
+what each piece *is*; there is no single "text" object to ask.
+
+Matching is case-insensitive and **plain**: `string.find` with the plain flag,
+so a phrase containing `-` or `.` searches for those characters instead of
+being read as a Lua pattern. Three characters minimum before it queries, and
+200 hits maximum, both for the same reason `consult-async-min-input` is 3.
+
+Measured: 4,400 indexed objects answer in 10–15 ms, so a library 25× that
+should land in the few-hundred-millisecond range for a rare phrase, and well
+under for a common one, since the limit short-circuits the scan.
+
+`Cmd-/` is Open Command Palette here, so this took `Alt-/` instead — the same
+`Alt-` convention the fork uses for `Alt-i`. To swap them:
+`command.update { name = "Navigate: Search Notes", mac = "Cmd-/" }`.
+
 ### Bare URLs
 
 A bare `https://…` in running text is an Org plain link, and these notes are
