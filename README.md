@@ -579,6 +579,32 @@ config.set("org", { todoKeywords = "TODO NEXT | DONE" })
 Any page works — there is no designated styles page — and the block takes
 effect on the next load of that page's index.
 
+### Browsing by signature
+
+`Shift-Alt-t` opens the **Signature Browser**, docked left: `debear.el`'s
+`[Tags] | [Notes] | [Editor]` with signatures where the tags were. The first
+level is the Johnny-Decimal category, named by its `NN=00` hub note
+(`21  iteam`, `23  Become a Therapist`); the second is the notes in it
+(`21=04  Rumspringa`); the editor is the third pane.
+
+A tree rather than two literal columns, because a navigator dock holds one
+view — `lhs`, `rhs` and `modal` are one apiece, so two side-by-side lists
+would need a new presentation mode in the navigator rather than a library
+page. Both levels start expanded, which is what makes it read as two columns;
+what you collapse is remembered.
+
+Two details that are easy to get wrong:
+
+* **Sorting pads each component** — `21=9` sorts before `21=10`, where plain
+  text puts it after, and `21=4` and `21=04` are the same address.
+* **Navigation uses the note's page, not its identifier.** A `denote` object's
+  `ref` *is* its identifier, and navigating to that opens a phantom page named
+  after a timestamp.
+
+Where two notes claim the same `NN=00` hub — this library has several, `21=00`
+being both *iteam* and *meta* — the first by signature names the category and
+the other is simply a note in it. Dropping one silently would be worse.
+
 ### Searching every note
 
 `Alt-/` opens **Search Notes**, which is `consult-denote-grep`'s shape: type,
