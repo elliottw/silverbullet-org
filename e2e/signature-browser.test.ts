@@ -28,6 +28,16 @@ const files: Record<string, string> = {
     "23=02",
     "Existential",
   ),
+  // Two notes claim `21=00`. The migration minted the `meta` one -- note the
+  // identifier that is not a date -- and the real note must name the
+  // category. This is the case that was wrong.
+  "00000000T002100==21=00--meta.org": org("00000000T002100", "21=00", "meta"),
+  // A category whose only hub is synthetic still has to be named by it.
+  "00000000T000026==26=00--community-medic.org": org(
+    "00000000T000026",
+    "26=00",
+    "Community Medic",
+  ),
   // No signature: not in the browser at all.
   "20260101T000300--unsigned.org":
     "#+title:      Unsigned\n#+identifier: 20260101T000300\n\nNothing.\n",
@@ -64,6 +74,13 @@ test.describe("Signature browser", () => {
       );
     // An unsigned note is not a signature, so it is not here.
     expect((await rows(sbPage)).join("|")).not.toContain("Unsigned");
+    // The real note names the category, not the migration's placeholder --
+    // and `meta` is still there, as a note inside it.
+    const all = (await rows(sbPage)).join("|");
+    expect(all).not.toContain("21  meta");
+    expect(all).toContain("21=00  meta");
+    // A synthetic hub is used when it is the only one.
+    expect(all).toContain("26  Community Medic");
   });
 
   test("a category's notes are in signature order, not text order", async ({

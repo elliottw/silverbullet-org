@@ -601,9 +601,16 @@ Two details that are easy to get wrong:
   `ref` *is* its identifier, and navigating to that opens a phantom page named
   after a timestamp.
 
-Where two notes claim the same `NN=00` hub — this library has several, `21=00`
-being both *iteam* and *meta* — the first by signature names the category and
-the other is simply a note in it. Dropping one silently would be worse.
+Where two notes claim the same `NN=00` hub, **a note you wrote outranks one
+the migration fabricated**. An identifier is a timestamp, so one whose year is
+not a year was invented rather than recorded: the Obsidian migration minted
+`00000000T002100` and friends to give a category something to hang on. `21=00`
+is both *iteam* (real) and *meta* (synthetic), and the category is iteam. Two
+real claimants are settled by the earlier identifier, so the answer never
+depends on index order — and a synthetic hub is still used where it is the
+only one, which for about a third of these categories it is (`20=00
+Missions`, `26=00 Community Medic`, `36=00 how to live`). The loser stays a
+note inside the category rather than disappearing.
 
 ### Searching every note
 

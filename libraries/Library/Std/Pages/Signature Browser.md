@@ -15,21 +15,42 @@ signatures = signatures or {}
 -- synthesized, so it must not collide with anything a note can contain.
 signatures.sep = "\31"
 
--- A category is named by its `NN=00` hub note. Where two notes claim the same
--- hub -- this library has several, `21=00` being both "iteam" and "meta" --
--- the first by signature wins and the other is just a note in the category,
--- which is the only answer that does not silently drop one of them.
+-- An identifier is a timestamp, so one whose year is not a year was invented
+-- rather than recorded: the Obsidian migration minted `00000000T002100` and
+-- the like to give a category something to hang on.
+function signatures.synthetic(identifier)
+  return (tonumber(string.sub(identifier or "", 1, 4)) or 0) < 1900
+end
+
+-- A category is named by its `NN=00` hub note, and several categories have
+-- more than one. Where they do, a note you actually wrote outranks one the
+-- migration fabricated -- `21=00` is both "iteam" (real) and "meta"
+-- (synthetic), and the category is iteam. Between two real ones the earlier
+-- identifier wins, so the answer does not depend on index order. A synthetic
+-- hub is still used when it is the only one, which for a good third of these
+-- categories it is.
 function signatures.categoryNames()
-  local names = {}
+  local best = {}
   for _, d in ipairs(query [[
     from d = index.objects("denote")
     where d.signature != nil
-    order by d.signature
   ]]) do
-    local head, rest = string.match(d.signature, "^(%d+)=(0+)$")
-    if head and rest and not names[head] then
-      names[head] = d.title
+    local head = string.match(d.signature, "^(%d+)=0+$")
+    if head then
+      local id = d.identifier or ""
+      local synthetic = signatures.synthetic(id)
+      local cur = best[head]
+      local better = cur == nil
+        or (cur.synthetic and not synthetic)
+        or (cur.synthetic == synthetic and id < cur.id)
+      if better then
+        best[head] = { id = id, title = d.title, synthetic = synthetic }
+      end
     end
+  end
+  local names = {}
+  for head, pick in pairs(best) do
+    names[head] = pick.title
   end
   return names
 end
