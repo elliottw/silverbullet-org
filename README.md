@@ -638,6 +638,32 @@ under for a common one, since the limit short-circuits the scan.
 `Alt-` convention the fork uses for `Alt-i`. To swap them:
 `command.update { name = "Navigate: Search Notes", mac = "Cmd-/" }`.
 
+### What a reference note tells you
+
+Opening a reference note should settle whether Zotero is worth the trip — a
+webpage you are already in a browser for; a book you are not. So the note
+carries what the item *is* and where it lives, in its front matter:
+
+```
+#+title:      Hackers and Painters
+#+filetags:   :bib:
+#+identifier: 20261108T233127
+#+reference:  graham2004hackers
+#+zotero:     ITEMKEY tags:essays
+#+type:       book
+#+url:        https://example.com/the-page
+#+file:       [[zotero:PSKBJDH2][hackers-and-painters.pdf]]
+```
+
+**The body is left empty.** It used to open with `[cite:@key]` and a link to
+the attachment, both of which are facts about the item rather than anything
+you had to say — so the first thing you did on a new reference note was delete
+them. Everything the item knows about itself lives above the body now.
+
+A bare URL in a keyword's value is linkified, so `#+url:` is clickable.
+Nothing else in a value is: running the inline parser over all of them would
+make `#+title: *Hamlet*` bold and `#+filetags:` a mess.
+
 ### Bare URLs
 
 A bare `https://…` in running text is an Org plain link, and these notes are

@@ -597,6 +597,8 @@ export async function newReferenceNoteCommand() {
     keywords: entry.keywords,
     attachment: entry.attachments[0]?.key,
     fileName: entry.attachments[0]?.name,
+    itemType: entry.type,
+    url: entry.url ?? entry.fields.url,
   });
   await editor.navigate({ path: note.page as any });
 }
@@ -748,6 +750,10 @@ export async function createReferenceNote(spec: {
   fileName?: string;
   citekey?: string;
   keywords?: string[];
+  /** Zotero's item type, or the BibTeX type the bibliography wrote. */
+  itemType?: string;
+  /** The item's URL, where it has one. */
+  url?: string;
 }): Promise<{ page: string; identifier: string }> {
   const { referenceKeyword } = await zoteroConfig();
   const keywords = [
@@ -771,15 +777,23 @@ export async function createReferenceNote(spec: {
     spec.item,
     (spec.keywords ?? []).map(slugifyTag).filter(Boolean),
   );
-  const body = [
-    spec.citekey ? `[cite:@${spec.citekey}]` : "",
-    spec.attachment
-      ? `[[zotero:${spec.attachment}][${spec.fileName ?? "the file"}]]`
-      : "",
-  ]
-    .filter(Boolean)
-    .join("\n");
-  await space.writePage(page, `${text.trimEnd()}\n\n${body}\n`);
+  // What this reference *is*, and where it lives, both in the front matter --
+  // the point being that opening the note tells you whether Zotero is worth
+  // the trip. A webpage you are already in a browser for; a book you are not.
+  if (spec.itemType) text = setLine(text, "type", spec.itemType);
+  if (spec.url) text = setLine(text, "url", spec.url);
+  if (spec.attachment) {
+    text = setLine(
+      text,
+      "file",
+      `[[zotero:${spec.attachment}][${spec.fileName ?? "the file"}]]`,
+    );
+  }
+  // The body is left empty on purpose. Everything the note is *about* belongs
+  // to the item and lives above; the body is for what you have to say, and
+  // starting it with a citation of the thing you are reading is noise you
+  // then have to edit around.
+  await space.writePage(page, `${text.trimEnd()}\n\n`);
   invalidateDenoteIdentifiers();
   const identifier = parseDenoteName(page)?.identifier ?? "";
   return { page, identifier };

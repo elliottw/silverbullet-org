@@ -132,6 +132,68 @@ test.describe("Zotero", () => {
     ).toEqual("20260914T130000--hackers-and-painters__bib.org");
   });
 
+  test("a reference note says what it is, and keeps its body empty", async ({
+    sbPage,
+    sbServer,
+  }) => {
+    // Opening a reference note should settle whether Zotero is worth the
+    // trip: a webpage you are already in a browser for.
+    await gotoSilverBulletPage(sbPage, sbServer, "Reading.org");
+    await expect(sbPage.locator("#sb-editor .cm-content")).toContainText(
+      "Graham 2004",
+      { timeout: 20_000 },
+    );
+    // Not awaited: the command does not return until the picker below is
+    // answered, so awaiting it deadlocks the test against itself.
+    await sbPage.evaluate(() => {
+      void (globalThis as any).sbRuntime.evalLuaScript(
+        'editor.invokeCommand("Zotero: New Reference Note")',
+      );
+    });
+    const filter = sbPage
+      .locator(".sb-modal-box input, .sb-modal input")
+      .first();
+    await expect(filter).toBeVisible({ timeout: 20_000 });
+    await filter.fill("Hackers");
+    await expect(
+      sbPage.locator(".sb-result-list .sb-name").first(),
+    ).toContainText("Hackers", { timeout: 10_000 });
+    await filter.press("Enter");
+    await expect(sbPage.locator("#sb-current-page input.sb-input")).toHaveValue(
+      // The `&` drops out of the slug, and `essays` comes from the entry.
+      /hackers-painters__bib_essays\.org$/,
+      { timeout: 20_000 },
+    );
+
+    const text = await expect
+      .poll(
+        () =>
+          sbPage.evaluate(() =>
+            (globalThis as any).sbRuntime.evalLuaScript(
+              "return editor.getText()",
+            ),
+          ),
+        { timeout: 30_000 },
+      )
+      .toContain("#+reference:")
+      .then(() =>
+        sbPage.evaluate(() =>
+          (globalThis as any).sbRuntime.evalLuaScript(
+            "return editor.getText()",
+          ),
+        ),
+      );
+    const body = String(text)
+      .split("\n")
+      .filter((l: string) => !l.startsWith("#+") && l.trim() !== "");
+    // Nothing below the front matter: the body is for what *you* have to say.
+    expect(body).toEqual([]);
+    // The type is there, so the note itself answers "what am I getting into".
+    expect(String(text)).toMatch(/^#\+type:\s+book$/m);
+    // And the file, which used to be a link in the body.
+    expect(String(text)).toMatch(/^#\+file:\s+\[\[zotero:PSKBJDH2\]\[/m);
+  });
+
   test("Zotero: New Reference Note writes a citar-denote note", async ({
     sbPage,
     sbServer,
@@ -160,7 +222,11 @@ test.describe("Zotero", () => {
     const text: string = await lua(sbPage, "return editor.getText()");
     expect(text).toMatch(/^#\+reference:\s+brown2007moral$/m);
     expect(text).toContain("#+filetags:   :bib:");
-    expect(text).toContain("[cite:@brown2007moral]");
+    // The citation lives in the front matter and nowhere else. It used to be
+    // repeated as `[cite:@…]` in the body, which was the first thing you had
+    // to delete before writing anything.
+    expect(text).not.toContain("[cite:@brown2007moral]");
+    expect(text).toMatch(/^#\+type:\s+article$/m);
   });
 });
 

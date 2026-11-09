@@ -270,6 +270,8 @@ export type ZoteroItem = {
   version: number;
   itemType: string;
   title?: string;
+  /** The item's own address, where it has one -- a webpage always does. */
+  url?: string;
   parentItem?: string;
   /** Better BibTeX's citekey, which Zotero carries for it. */
   citationKey?: string;
@@ -292,6 +294,9 @@ export async function getZoteroItem(
     key: data.key ?? key,
     version: data.version ?? Number(res.headers.get("Last-Modified-Version")),
     itemType: data.itemType ?? "",
+    // A webpage's own address, which is the whole reason to look at the item
+    // rather than open Zotero.
+    url: data.url,
     title: data.title,
     parentItem: data.parentItem,
     citationKey: data.citationKey,

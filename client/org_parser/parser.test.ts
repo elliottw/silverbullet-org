@@ -359,3 +359,21 @@ test("A bare URL inside emphasis nests rather than overlapping", () => {
   expect(urls.length).toBe(1);
   expect(renderToText(urls[0])).toEqual("https://example.com");
 });
+
+// `#+url:` on a reference note exists to be clicked. A keyword's value is
+// otherwise plain text, and must stay that way.
+test("A bare URL in a keyword value is a NakedURL; other markup is not", () => {
+  const tree = parseOrg("#+url:        https://example.com/a-page\n\nBody.\n");
+  const urls = collectNodesOfType(tree, "NakedURL");
+  expect(urls.length).toBe(1);
+  expect(renderToText(urls[0])).toEqual("https://example.com/a-page");
+
+  // Emphasis in a title stays literal -- front matter is not prose.
+  const titled = parseOrg("#+title:      *Hamlet*\n\nBody.\n");
+  expect(collectNodesOfType(titled, "Emphasis").length).toBe(0);
+  expect(collectNodesOfType(titled, "NakedURL").length).toBe(0);
+
+  // And a value that is only partly a URL keeps the rest as text.
+  const mixed = parseOrg("#+zotero:     ABC12345 tags:a,b\n");
+  expect(collectNodesOfType(mixed, "NakedURL").length).toBe(0);
+});
