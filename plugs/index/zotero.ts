@@ -819,6 +819,10 @@ function setLine(
   if (line.test(text)) return text.replace(line, rendered);
   // A new line goes after the last one that belongs above it, so the front
   // matter reads in a stable order however the lines arrived.
+  // A key absent from this list lands directly under `#+title:`, which is
+  // where `type`, `url` and `file` went when they were added without being
+  // listed -- above the identifier, in front of everything that identifies
+  // the note.
   const order = [
     "title",
     "date",
@@ -828,6 +832,9 @@ function setLine(
     "reference",
     "zotero",
     "zotero_tags",
+    "type",
+    "url",
+    "file",
   ];
   const above = order.slice(0, Math.max(1, order.indexOf(key))).reverse();
   for (const before of above) {
@@ -1178,6 +1185,107 @@ export async function syncReferenceNoteOnOpen(page: string) {
 }
 
 /** `Zotero: Sync Reference Notes` -- every reference note in the library. */
+/**
+ * `Zotero: Backfill Reference Notes` -- brings notes made before `#+type:`
+ * and `#+url:` existed up to the shape new ones are born in.
+ *
+ * The item type comes from the API rather than from the bibliography, which
+ * is lossy for the one fact that matters here: Better BibTeX flattens a
+ * Zotero *webpage* into `@misc`, so the bibliography would answer "misc" to
+ * the question "can I just click this".
+ *
+ * The body is left alone apart from the two lines the old template wrote: the
+ * `[cite:@own-key]` it opened with, and a bare `[[zotero:KEY][file]]` link,
+ * which moves up to `#+file:`. Several of these notes have bodies of their
+ * own, and emptying them would destroy the thing the note is for. A citation
+ * of some *other* work is one the author made, and stays.
+ */
+export async function backfillReferenceNotesCommand() {
+  const { userId, apiKey, api } = await zoteroConfig();
+  // Without credentials the type and url cannot be learned, but the template
+  // residue can still be cleared -- so the pass is worth running either way.
+  const creds = userId && apiKey ? { userId, apiKey, api } : undefined;
+  const notes = await index.queryLuaObjects<ZoteroNoteObject>(
+    "zotero-note",
+    {},
+  );
+  if (notes.length === 0) {
+    await editor.flashNotification("No reference notes found", "info");
+    return;
+  }
+  let changed = 0;
+  let typed = 0;
+  let unreachable = 0;
+  for (const note of notes) {
+    let text: string;
+    try {
+      text = await space.readPage(note.page);
+    } catch {
+      continue;
+    }
+    const before = text;
+    const item = itemOf(text);
+    if (creds && item) {
+      const live = await getZoteroItem(creds, item);
+      if (live) {
+        if (live.itemType && !/^#\+type:/im.test(text)) {
+          text = setLine(text, "type", live.itemType);
+          typed++;
+        }
+        if (live.url && !/^#\+url:/im.test(text)) {
+          text = setLine(text, "url", live.url);
+        }
+      } else {
+        unreachable++;
+      }
+    }
+    text = stripTemplateResidue(text, note.citekey);
+    if (text !== before) {
+      await space.writePage(note.page, text);
+      changed++;
+    }
+  }
+  await editor.flashNotification(
+    `${changed} of ${notes.length} reference notes updated` +
+      (typed ? `, ${typed} typed` : "") +
+      (unreachable ? `, ${unreachable} not in Zotero` : ""),
+  );
+}
+
+/**
+ * Takes the old template's own two lines out of a body and moves the
+ * attachment link into `#+file:`. Nothing else: a `[cite:]` of another work
+ * is the author's, and so is every other line.
+ */
+export function stripTemplateResidue(text: string, citekey?: string): string {
+  const [front, body] = splitFrontMatter(text);
+  const kept: string[] = [];
+  let out = front.join("\n");
+  for (const line of body) {
+    const trimmed = line.trim();
+    if (citekey && trimmed === `[cite:@${citekey}]`) continue;
+    const file = /^\[\[zotero:([A-Z0-9]{8})\](?:\[([^\]]*)\])?\]$/.exec(
+      trimmed,
+    );
+    if (file && !/^#\+file:/im.test(out)) {
+      out = setLine(out, "file", trimmed);
+      continue;
+    }
+    kept.push(line);
+  }
+  return `${out}\n${kept.join("\n")}`.replace(/\n{3,}$/, "\n\n");
+}
+
+/** The leading run of `#+` lines, and the rest. */
+function splitFrontMatter(text: string): [string[], string[]] {
+  const lines = text.split("\n");
+  let i = 0;
+  while (i < lines.length && (lines[i].startsWith("#+") || !lines[i].trim())) {
+    i++;
+  }
+  return [lines.slice(0, i), lines.slice(i)];
+}
+
 export async function syncReferenceNotesCommand() {
   const { syncKeywords } = await zoteroConfig();
   if (syncKeywords === "off") {

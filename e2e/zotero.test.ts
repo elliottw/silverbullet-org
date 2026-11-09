@@ -190,6 +190,14 @@ test.describe("Zotero", () => {
     expect(body).toEqual([]);
     // The type is there, so the note itself answers "what am I getting into".
     expect(String(text)).toMatch(/^#\+type:\s+book$/m);
+    // And in the right place: below what identifies the note, not above it.
+    // A key missing from `setLine`'s order list lands under `#+title:`.
+    const keys = String(text)
+      .split("\n")
+      .map((l: string) => /^#\+(\w+):/.exec(l)?.[1])
+      .filter(Boolean);
+    expect(keys.indexOf("type")).toBeGreaterThan(keys.indexOf("identifier"));
+    expect(keys.indexOf("file")).toBeGreaterThan(keys.indexOf("type"));
     // And the file, which used to be a link in the body.
     expect(String(text)).toMatch(/^#\+file:\s+\[\[zotero:PSKBJDH2\]\[/m);
   });

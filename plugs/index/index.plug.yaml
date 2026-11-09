@@ -365,6 +365,11 @@ functions:
     events:
       - editor:pageLoaded
   # Keywords and tags, kept in step -- see `syncReferenceNote`.
+  zoteroBackfillReferenceNotes:
+    path: ./zotero.ts:backfillReferenceNotesCommand
+    command:
+      name: "Zotero: Backfill Reference Notes"
+      requireMode: rw
   zoteroSyncReferenceNotes:
     path: ./zotero.ts:syncReferenceNotesCommand
     command:
