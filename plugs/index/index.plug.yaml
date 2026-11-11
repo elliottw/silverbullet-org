@@ -371,6 +371,19 @@ functions:
     command:
       name: "Blog: Publish"
       requireMode: rw
+  # Moving attachments nothing points at into Zotero -- see archive.ts.
+  zoteroArchiveOrphans:
+    path: ./archive.ts:archiveOrphansCommand
+    command:
+      name: "Zotero: Archive Unlinked Files"
+      requireMode: rw
+  # Exposed so the e2e can ask what the scan found without driving dialogs.
+  orphans:
+    path: ./archive.ts:orphans
+  zoteroListOrphans:
+    path: ./archive.ts:listOrphansCommand
+    command:
+      name: "Zotero: List Unlinked Files"
   blogSetToken:
     path: ./blog.ts:setTokenCommand
     command:

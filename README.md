@@ -579,6 +579,25 @@ config.set("org", { todoKeywords = "TODO NEXT | DONE" })
 Any page works — there is no designated styles page — and the block takes
 effect on the next load of that page's index.
 
+### Attachments nothing points at
+
+`Zotero: List Unlinked Files` reports them; `Zotero: Archive Unlinked Files`
+uploads each to Zotero tagged `inbox` (configurable as
+`zotero.archiveTag`) and deletes the local copy.
+
+Two deliberate cautions, because the cost of being wrong here is a deleted
+file:
+
+* **"Unlinked" means no note mentions the file name anywhere** — not merely
+  that no link points at it. A paragraph naming a file without linking it is
+  still a reference.
+* **Each file is uploaded and only then deleted, one at a time.** A failed
+  upload leaves the file where it was, and a run that dies halfway has moved
+  exactly what it uploaded. Nothing goes on the strength of a batch.
+
+Images are opt-in: they are referenced far more often than documents, and
+they are what a note shows inline.
+
 ### Publishing to the Hugo site
 
 `Blog: Publish` commits straight from the browser to GitHub — no Mac in the
