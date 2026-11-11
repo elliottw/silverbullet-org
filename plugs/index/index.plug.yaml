@@ -365,6 +365,20 @@ functions:
     events:
       - editor:pageLoaded
   # Keywords and tags, kept in step -- see `syncReferenceNote`.
+  # Publishing to the Hugo site -- see plugs/index/blog.ts.
+  blogPublish:
+    path: ./blog.ts:publishCommand
+    command:
+      name: "Blog: Publish"
+      requireMode: rw
+  blogSetToken:
+    path: ./blog.ts:setTokenCommand
+    command:
+      name: "Blog: Set GitHub Token"
+  blogCheckLinks:
+    path: ./blog.ts:checkLinksCommand
+    command:
+      name: "Blog: Check Links"
   zoteroBackfillReferenceNotes:
     path: ./zotero.ts:backfillReferenceNotesCommand
     command:

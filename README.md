@@ -579,6 +579,31 @@ config.set("org", { todoKeywords = "TODO NEXT | DONE" })
 Any page works — there is no designated styles page — and the block takes
 effect on the next load of that page's index.
 
+### Publishing to the Hugo site
+
+`Blog: Publish` commits straight from the browser to GitHub — no Mac in the
+loop, and no push credential on the seedbox.
+
+* **`Blog: Set GitHub Token`** stores a fine-grained token (Contents: write on
+  the site repo) in the **client store**, not in config. Config lives in the
+  space, and the space syncs to the seedbox and every device; a write token
+  for the site does not need to be in that many places. Pasted once per
+  device, never travels.
+* A note joins the site by carrying the keyword **`elliottwgithubio`** — the
+  repository's name, so a second site is a second keyword rather than a second
+  convention.
+* State is **`#+draft:`**, the word Hugo itself reads. `hugo server -D` shows
+  drafts locally; a production build omits them. Nothing renames.
+* Before publishing, links are **scanned and reported, not rewritten**: a link
+  to a note that is not a post is named (`Second Post → A private note`) and
+  you are asked whether to go ahead. Flattening it silently is not the
+  exporter's call.
+* The whole publish is **one commit** built on the existing tree, so Pages
+  rebuilds once and nothing outside `content/posts` is touched. An identical
+  tree makes no commit at all.
+* A file that lives in Zotero is **pulled down into the page bundle**, so the
+  site never links into a library only you can read.
+
 ### Browsing by signature
 
 `Shift-Alt-t` opens the **Signature Browser**, docked left: `debear.el`'s

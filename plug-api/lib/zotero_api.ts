@@ -272,6 +272,8 @@ export type ZoteroItem = {
   title?: string;
   /** The item's own address, where it has one -- a webpage always does. */
   url?: string;
+  /** An attachment's file name in Zotero's store. */
+  filename?: string;
   parentItem?: string;
   /** Better BibTeX's citekey, which Zotero carries for it. */
   citationKey?: string;
@@ -297,6 +299,7 @@ export async function getZoteroItem(
     // A webpage's own address, which is the whole reason to look at the item
     // rather than open Zotero.
     url: data.url,
+    filename: data.filename,
     title: data.title,
     parentItem: data.parentItem,
     citationKey: data.citationKey,
@@ -312,6 +315,30 @@ export async function getZoteroItem(
  * made elsewhere since. Returns false on such a conflict, so a caller can
  * re-read and decide.
  */
+/**
+ * An attachment's bytes and file name, from Zotero's own file store.
+ *
+ * `/items/KEY/file` answers with a redirect to wherever the file actually
+ * lives -- Zotero's storage or a WebDAV server -- which `fetch` follows.
+ * Undefined when the item has no file, which a linked-URL attachment does
+ * not.
+ */
+export async function getZoteroAttachment(
+  { userId, apiKey, api = zoteroApi }: ZoteroCredentials,
+  key: string,
+  fetchFn: typeof fetch = fetch,
+): Promise<{ name: string; content: Uint8Array } | undefined> {
+  const item = await getZoteroItem({ userId, apiKey, api }, key, fetchFn);
+  if (!item) return undefined;
+  const res = await fetchFn(`${api}/users/${userId}/items/${key}/file`, {
+    headers: { "Zotero-API-Key": apiKey, "Zotero-API-Version": "3" },
+  });
+  if (!res.ok) return undefined;
+  const content = new Uint8Array(await res.arrayBuffer());
+  if (content.length === 0) return undefined;
+  return { name: item.filename ?? `${key}.bin`, content };
+}
+
 export async function setZoteroItemTags(
   { userId, apiKey, api = zoteroApi }: ZoteroCredentials,
   key: string,
