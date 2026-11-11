@@ -102,26 +102,40 @@ export async function listCollections(
   { userId, apiKey, api = zoteroApi }: ZoteroCredentials,
   fetchFn: typeof fetch = fetch,
 ): Promise<ZoteroCollection[]> {
-  const out: ZoteroCollection[] = [];
-  for (let start = 0; ; start += 100) {
-    const res = await fetchFn(
-      `${api}/users/${userId}/collections?limit=100&start=${start}`,
-      { headers: { "Zotero-API-Key": apiKey, "Zotero-API-Version": "3" } },
-    );
+  const headers = { "Zotero-API-Key": apiKey, "Zotero-API-Version": "3" };
+  const url = (start: number) =>
+    `${api}/users/${userId}/collections?limit=100&start=${start}`;
+
+  const read = async (res: Response) => {
     const page = (await res.json()) as {
       key: string;
       data: { name: string; parentCollection: string | false };
     }[];
-    for (const c of page) {
-      out.push({
-        key: c.key,
-        name: c.data.name,
-        parent: c.data.parentCollection || null,
-      });
-    }
-    const total = Number(res.headers.get("Total-Results") ?? out.length);
-    if (page.length === 0 || out.length >= total) return out;
-  }
+    return page.map((c) => ({
+      key: c.key,
+      name: c.data.name,
+      parent: c.data.parentCollection || null,
+    }));
+  };
+
+  // The first page also says how many there are, which turns the rest from a
+  // serial walk into one batch. A library with a thousand collections was
+  // ten pages fetched one after another -- half a minute of waiting before a
+  // picker could open.
+  const first = await fetchFn(url(0), { headers });
+  const out = await read(first);
+  const total = Number(first.headers.get("Total-Results") ?? out.length);
+  if (out.length >= total || out.length === 0) return out;
+
+  const starts: number[] = [];
+  for (let start = out.length; start < total; start += 100) starts.push(start);
+  const rest = await Promise.all(
+    starts.map(
+      async (start) => await read(await fetchFn(url(start), { headers })),
+    ),
+  );
+  for (const page of rest) out.push(...page);
+  return out;
 }
 
 /** `2026 / 21 iteam / 14 landslide mediation` for each collection, by key. */

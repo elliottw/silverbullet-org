@@ -579,6 +579,26 @@ config.set("org", { todoKeywords = "TODO NEXT | DONE" })
 Any page works — there is no designated styles page — and the block takes
 effect on the next load of that page's index.
 
+### Why a drop got slow
+
+Dropping a PDF asks which Zotero collection to file it in, and the picker
+needs the collection list. That list was fetched serially, 100 at a time, on
+every drop — and with a thousand collections that is ten round trips, about
+half a minute of waiting before the picker could appear. The server log is
+where it showed:
+
+```
+20:30:33  /collections?limit=100&start=500
+20:30:36  /collections?limit=100&start=600
+20:30:38  /collections?limit=100&start=700
+```
+
+Two fixes. The first page reports `Total-Results`, so the rest are now
+fetched **together** rather than one after another; and the list is **cached**
+in the client store for six hours, because collections change far less often
+than files are filed into them. `Zotero: Refresh Collections` reloads it after
+making one in the Zotero app.
+
 ### Attachments nothing points at
 
 `Zotero: List Unlinked Files` reports them; `Zotero: Archive Unlinked Files`

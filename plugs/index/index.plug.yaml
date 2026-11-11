@@ -372,6 +372,10 @@ functions:
       name: "Blog: Publish"
       requireMode: rw
   # Moving attachments nothing points at into Zotero -- see archive.ts.
+  zoteroRefreshCollections:
+    path: ./zotero.ts:refreshCollectionsCommand
+    command:
+      name: "Zotero: Refresh Collections"
   zoteroArchiveOrphans:
     path: ./archive.ts:archiveOrphansCommand
     command:

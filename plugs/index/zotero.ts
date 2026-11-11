@@ -44,6 +44,7 @@ import {
   createParentItem,
   getZoteroItem,
   listCollections,
+  type ZoteroCollection,
   listDeletedZoteroItems,
   listZoteroItems,
   setZoteroItemTags,
@@ -878,6 +879,52 @@ function titleFor(name: string, content: Uint8Array): string {
 }
 
 /**
+ * The collection list, remembered between drops.
+ *
+ * Collections change far less often than files are added to them, and the
+ * list is what stands between dropping a PDF and being asked where to file
+ * it -- a thousand of them is ten API pages. Cached in the client store so a
+ * reload does not pay for it again, and refreshable from the command when
+ * something new has been made in Zotero.
+ */
+const collectionsKey = "zotero.collections";
+const collectionsTtl = 6 * 60 * 60 * 1000;
+
+async function cachedCollections(
+  creds: ZoteroCredentials,
+  force = false,
+): Promise<ZoteroCollection[]> {
+  if (!force) {
+    const cached = (await clientStore.get(collectionsKey)) as
+      | { at: number; collections: ZoteroCollection[] }
+      | undefined;
+    if (
+      cached?.collections?.length &&
+      Date.now() - cached.at < collectionsTtl
+    ) {
+      return cached.collections;
+    }
+  }
+  const collections = await listCollections(creds);
+  await clientStore.set(collectionsKey, { at: Date.now(), collections });
+  return collections;
+}
+
+/** `Zotero: Refresh Collections` -- after making one in the Zotero app. */
+export async function refreshCollectionsCommand(): Promise<void> {
+  const { userId, apiKey, api } = await zoteroConfig();
+  if (!userId || !apiKey) {
+    await editor.flashNotification(
+      "Set zotero.userId and zotero.apiKey",
+      "error",
+    );
+    return;
+  }
+  const collections = await cachedCollections({ userId, apiKey, api }, true);
+  await editor.flashNotification(`${collections.length} collections`);
+}
+
+/**
  * A picker over the library's collections, as paths, scoped to
  * `zotero.rootCollection` when set. The last choice is offered first, and
  * "no collection" is always available. Returns a key, "" for none, or
@@ -887,7 +934,7 @@ async function pickCollection(
   creds: ZoteroCredentials,
 ): Promise<string | "" | undefined> {
   const { rootCollection } = await zoteroConfig();
-  const collections = await listCollections(creds);
+  const collections = await cachedCollections(creds);
   const paths = collectionPaths(collections);
   const last = (await clientStore.get("zotero.lastCollection")) as
     | string
