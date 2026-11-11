@@ -43,6 +43,18 @@ export function expandMarkdown(tree: ParseTree): Promise<ParseTree> {
  * @param markdownText the markdown text to render
  * @returns HTML representation of the markdown
  */
+/**
+ * Renders a whole page to HTML, parsed by its extension -- the Org parser for
+ * an `.org` page, the Markdown one otherwise.
+ */
+export function pageToHtml(
+  path: string,
+  text: string,
+  options: Record<string, unknown> = {},
+): Promise<string> {
+  return syscall("markdown.pageToHtml", path, text, options);
+}
+
 export function markdownToHtml(markdownText: string): Promise<string> {
   return syscall("markdown.markdownToHtml", markdownText);
 }

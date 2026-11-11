@@ -618,10 +618,20 @@ file:
 Images are opt-in: they are referenced far more often than documents, and
 they are what a note shows inline.
 
-### Publishing to the Hugo site
+### Publishing the site
 
-`Blog: Publish` commits straight from the browser to GitHub — no Mac in the
-loop, and no push credential on the seedbox.
+`Blog: Publish` renders the site to HTML and commits it straight from the
+browser to GitHub — no Hugo, no Action, no Mac in the loop, and no push
+credential on the seedbox.
+
+Hugo turned out to be replaceable because of a decision made much earlier:
+**the Org parser emits Markdown node names**, so `renderMarkdownToHtml` already
+understands an Org tree. The generator is therefore a template, a stylesheet
+and a link rewrite rather than a renderer. What it does keep is the writing's
+own vocabulary — the `{{< marginnote >}}`, `{{< figure >}}` and `{{< vimeo >}}`
+shortcodes this content already uses 74 times between them — rendered into
+Tufte's markup, including the label-and-checkbox form that folds a margin note
+back inline on a phone instead of losing it off the edge.
 
 * **`Blog: Set GitHub Token`** stores a fine-grained token (Contents: write on
   the site repo) in the **client store**, not in config. Config lives in the
@@ -630,7 +640,10 @@ loop, and no push credential on the seedbox.
   device, never travels.
 * A note joins the site by carrying the keyword **`elliottwgithubio`** — the
   repository's name, so a second site is a second keyword rather than a second
-  convention.
+  convention — plus **`post`** or **`page`**. Explicit, because a rule
+  inferred from a missing date is the kind of thing that surprises you in a
+  year. A post lands under `posts/`, a page at the root.
+* A note also keyworded **`draft`** is held back.
 * State is **`#+draft:`**, the word Hugo itself reads. `hugo server -D` shows
   drafts locally; a production build omits them. Nothing renames.
 * Before publishing, links are **scanned and reported, not rewritten**: a link

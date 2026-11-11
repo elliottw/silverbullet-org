@@ -129,6 +129,44 @@ export function markdownSyscalls(client: Client): SysCallMapping {
         },
       ],
     },
+    /**
+     * A whole page to HTML, parsed by its extension.
+     *
+     * `markdownToHtml` assumes Markdown, which is the wrong parser for an Org
+     * page -- and the renderer itself does not care, because the Org parser
+     * emits Markdown node names. That is what makes publishing an Org library
+     * as HTML cheap: the renderer already understands the tree.
+     */
+    "markdown.pageToHtml": {
+      callback: async (
+        _ctx,
+        path: string,
+        text: string,
+        options: MarkdownRenderOptions = {},
+      ) => {
+        const tree =
+          getPathExtension(path as Path) === "org"
+            ? parseOrg(text)
+            : parse(markdownLanguageWithUserExtensions(client), text);
+        return renderMarkdownToHtml(
+          tree,
+          options,
+          client.ui.viewState.allPages,
+        );
+      },
+      description: "Renders a page to HTML, parsed according to its extension.",
+      parameters: [
+        { name: "path", type: "string", description: "The page's path." },
+        { name: "text", type: "string", description: "Its text." },
+        {
+          name: "options",
+          type: "table",
+          description: "Render options.",
+          optional: true,
+        },
+      ],
+      returns: [{ type: "string", description: "HTML." }],
+    },
     "markdown.markdownToHtml": {
       callback: async (
         _ctx,

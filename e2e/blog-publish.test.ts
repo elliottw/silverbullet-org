@@ -6,6 +6,8 @@ import { expect, gotoSilverBulletPage, test } from "./fixtures.ts";
 // suite points its API base at a local port.
 const GH_PORT = 43000 + Math.floor(Math.random() * 15000);
 const paths: string[] = [];
+const blobs: string[] = [];
+const bodies: { path: string; content: string }[] = [];
 
 function mockGitHub(): Promise<Server> {
   const server = createServer((req, res) => {
@@ -26,9 +28,18 @@ function mockGitHub(): Promise<Server> {
       if (url.includes("/git/commits/HEAD")) {
         return send({ tree: { sha: "BASE" } });
       }
-      if (url.endsWith("/git/blobs")) return send({ sha: "B" });
+      if (url.endsWith("/git/blobs")) {
+        blobs.push(
+          Buffer.from(String(body?.content ?? ""), "base64").toString("utf8"),
+        );
+        return send({ sha: `B${blobs.length}` });
+      }
       if (url.endsWith("/git/trees")) {
-        for (const entry of body?.tree ?? []) paths.push(entry.path);
+        for (const entry of body?.tree ?? []) {
+          paths.push(entry.path);
+          const n = Number(String(entry.sha).slice(1));
+          bodies.push({ path: entry.path, content: blobs[n - 1] ?? "" });
+        }
         return send({ sha: "NEW" });
       }
       if (url.endsWith("/git/commits")) return send({ sha: "COMMITSHA" });
@@ -73,7 +84,7 @@ test.describe("Blog: Publish", () => {
         "20261109T094102",
         "On Civic Design",
         `${K}:design`,
-        "* A section\nProse.\n",
+        "* A section\nProse {{< marginnote >}}An aside.{{< /marginnote >}}.\n",
       ),
       [`20261109T094200--second-post__${K}.org`]: org(
         "20261109T094200",
@@ -81,6 +92,18 @@ test.describe("Blog: Publish", () => {
         K,
         "See [[denote:20261109T094102][the first]] and " +
           "[[denote:20261109T094300][a private note]].\n",
+      ),
+      [`20261109T094400--a-page__${K}_page.org`]: org(
+        "20261109T094400",
+        "A Page",
+        `${K}:page`,
+        "About me.\n",
+      ),
+      [`20261109T094500--held-back__${K}_post_draft.org`]: org(
+        "20261109T094500",
+        "Held Back",
+        `${K}:post:draft`,
+        "Not ready.\n",
       ),
       "20261109T094300--a-private-note.org": org(
         "20261109T094300",
@@ -131,8 +154,56 @@ test.describe("Blog: Publish", () => {
     await expect
       .poll(() => committed(), { timeout: 25_000 })
       .toEqual([
-        "content/posts/on-civic-design/index.org",
-        "content/posts/second-post/index.org",
+        // A post goes under posts/, a page at the root -- the distinction is
+        // the keyword, not a guess at a missing date.
+        "posts/on-civic-design/index.html",
+        "posts/second-post/index.html",
+        "a-page/index.html",
+        "index.html",
+        "tufte.css",
       ]);
+  });
+
+  test("a draft is held back, and the index lists what was published", async ({
+    sbPage,
+    sbServer,
+  }) => {
+    paths.length = 0;
+    bodies.length = 0;
+    await gotoSilverBulletPage(sbPage, sbServer, "index");
+    await sbPage.waitForTimeout(3500);
+    await sbPage.evaluate(() =>
+      (globalThis as any).sbRuntime.evalLuaScript(
+        'clientStore.set("blogGitHubToken", "test-token")',
+      ),
+    );
+    await sbPage.evaluate(() => {
+      void (globalThis as any).sbRuntime.evalLuaScript(
+        `editor.invokeCommand("Blog: Publish")`,
+      );
+    });
+    const dialog = sbPage.locator(".sb-modal-box, .sb-modal").first();
+    await expect(dialog).toContainText("A private note", { timeout: 20_000 });
+    await sbPage
+      .locator(".sb-modal-box button, .sb-modal button")
+      .filter({ hasText: /ok|yes|publish|confirm/i })
+      .first()
+      .click();
+
+    await expect
+      .poll(() => paths, { timeout: 25_000 })
+      .toEqual(expect.arrayContaining(["index.html"]));
+    // The draft never reaches the site.
+    expect(paths.some((p) => p.includes("held-back"))).toBe(false);
+    const index = bodies.find((b) => b.path === "index.html")!.content;
+    expect(index).toContain("On Civic Design");
+    expect(index).toContain("A Page");
+    expect(index).not.toContain("Held Back");
+    // And the margin note in the body became Tufte's markup.
+    const post = bodies.find((b) =>
+      b.path.includes("on-civic-design"),
+    )!.content;
+    expect(post).toContain('class="marginnote"');
+    expect(post).toContain('href="../../tufte.css"');
   });
 });

@@ -2,9 +2,16 @@ import {
   clientStore,
   editor,
   index,
+  markdown,
   space,
   system,
 } from "@silverbulletmd/silverbullet/syscalls";
+import {
+  replaceShortcodes,
+  type Shortcode,
+  tufteCss,
+  tufteHtml,
+} from "@silverbulletmd/silverbullet/lib/tufte";
 import {
   commitFiles,
   type GitHubFile,
@@ -34,8 +41,8 @@ export type BlogConfig = {
   owner: string;
   repo: string;
   branch: string;
-  /** Where posts live in the repo. */
-  postsDir: string;
+  /** Shown in the tab and the footer. */
+  siteTitle: string;
   /** Overridable so a test can stand in for api.github.com. */
   api?: string;
 };
@@ -84,7 +91,7 @@ export async function blogConfig(): Promise<BlogConfig> {
     owner: configured.owner ?? "elliottw",
     repo: configured.repo ?? "elliottw.github.io",
     branch: configured.branch ?? "main",
-    postsDir: configured.postsDir ?? "content/posts",
+    siteTitle: configured.siteTitle ?? "elliott.io",
     api: configured.api,
   };
 }
@@ -201,10 +208,11 @@ export async function publishCommand(): Promise<void> {
     await editor.flashNotification("Run Blog: Set GitHub Token first", "error");
     return;
   }
-  const posts = await publishable(cfg.keyword);
-  if (posts.length === 0) {
+  const all = await publishable(cfg.keyword);
+  const live = all.filter((n) => !(n.keywords ?? []).includes("draft"));
+  if (live.length === 0) {
     await editor.flashNotification(
-      `No notes keyworded ${cfg.keyword}`,
+      `No notes keyworded ${cfg.keyword} to publish`,
       "error",
     );
     return;
@@ -220,7 +228,7 @@ export async function publishCommand(): Promise<void> {
       dangling.length > 12 ? `\n  …and ${dangling.length - 12} more` : "";
     const go = await editor.confirm(
       `${dangling.length} link${dangling.length === 1 ? "" : "s"} point at ` +
-        `notes that are not posts:\n\n${shown}${more}\n\n` +
+        `notes that are not published:\n\n${shown}${more}\n\n` +
         `Publish anyway? They will appear as dead links.`,
     );
     if (!go) return;
@@ -228,24 +236,27 @@ export async function publishCommand(): Promise<void> {
 
   const creds = await zoteroCredentials();
   const files: GitHubFile[] = [];
-  let drafts = 0;
+  const encode = (text: string) => new TextEncoder().encode(text);
+  // Identifier -> where that post ended up, so a `denote:` link between two
+  // published notes becomes an ordinary href.
+  const hrefs = new Map<string, string>();
+  for (const note of live) {
+    hrefs.set(note.identifier, `${pathFor(note, cfg)}/`);
+  }
+
   let pulled = 0;
-  for (const post of posts) {
+  const entries: PageEntry[] = [];
+  for (const note of live) {
     let text: string;
     try {
-      text = await space.readPage(post.page);
+      text = await space.readPage(note.page);
     } catch {
       continue;
     }
-    const draft = /^#\+draft:[ \t]*true[ \t]*$/im.test(text);
-    if (draft) drafts++;
-    const categories = (post.keywords ?? []).filter((k) => k !== cfg.keyword);
-    const slug = slugFor(post.title, post.identifier);
-    const dir = `${cfg.postsDir}/${slug}`;
+    const dir = pathFor(note, cfg);
     let body = text;
 
-    // An image kept beside the note travels with the post: a page bundle is
-    // a directory, so the relative link keeps working.
+    // Attachments travel with the page, so a relative src keeps working.
     for (const match of text.matchAll(fileLink)) {
       const name = match[1].trim();
       const leaf = name.slice(name.lastIndexOf("/") + 1);
@@ -256,38 +267,34 @@ export async function publishCommand(): Promise<void> {
         });
         body = body.replaceAll(match[0], `[[file:${leaf}]]`);
       } catch {
-        // A missing image is the author's to fix, and not worth failing the
-        // whole publish over.
+        /* a missing image is the author's to fix */
       }
     }
-
-    // A file that lives in Zotero rather than beside the note is pulled down
-    // and put in the bundle, so the site does not link into a library only
-    // you can read.
     for (const match of text.matchAll(zoteroLink)) {
       if (!creds) break;
-      const key = match[1];
       try {
-        const file = await getZoteroAttachment(creds, key);
+        const file = await getZoteroAttachment(creds, match[1]);
         if (!file) continue;
         files.push({ path: `${dir}/${file.name}`, content: file.content });
         body = body.replaceAll(match[0], `[[file:${file.name}]]`);
         pulled++;
       } catch {
-        // Likewise: a reference that will not download is reported by its
-        // absence, not by a failed publish.
+        /* likewise */
       }
     }
 
-    files.push({
-      path: `${dir}/index.org`,
-      content: new TextEncoder().encode(toPost(body, { categories, draft })),
-    });
+    const page = await renderPage(note, body, hrefs, cfg);
+    files.push({ path: `${dir}/index.html`, content: encode(page.html) });
+    entries.push(page.entry);
   }
 
-  await editor.flashNotification(
-    `Committing ${files.length} file${files.length === 1 ? "" : "s"}…`,
-  );
+  files.push({
+    path: "index.html",
+    content: encode(renderIndex(entries, cfg)),
+  });
+  files.push({ path: "tufte.css", content: encode(tufteCss) });
+
+  await editor.flashNotification(`Committing ${files.length} files…`);
   let sha: string | undefined;
   try {
     sha = await commitFiles(
@@ -299,8 +306,7 @@ export async function publishCommand(): Promise<void> {
         api: cfg.api,
       },
       files,
-      `Publish ${posts.length} post${posts.length === 1 ? "" : "s"} ` +
-        `from the note library`,
+      `Publish ${live.length} page${live.length === 1 ? "" : "s"}`,
     );
   } catch (e: any) {
     await editor.flashNotification(e.message, "error");
@@ -310,12 +316,148 @@ export async function publishCommand(): Promise<void> {
     await editor.flashNotification("Already up to date — nothing to publish");
     return;
   }
+  const drafts = all.length - live.length;
   await editor.flashNotification(
-    `Published ${posts.length} post${posts.length === 1 ? "" : "s"}` +
-      (drafts ? `, ${drafts} as draft${drafts === 1 ? "" : "s"}` : "") +
+    `Published ${live.length} page${live.length === 1 ? "" : "s"}` +
+      (drafts
+        ? `, ${drafts} held back as draft${drafts === 1 ? "" : "s"}`
+        : "") +
       (pulled ? `, ${pulled} file${pulled === 1 ? "" : "s"} from Zotero` : "") +
       ` — ${sha.slice(0, 7)}`,
   );
+}
+
+type PageEntry = { title: string; href: string; date: string; post: boolean };
+
+/**
+ * Where a note lands. A post goes under `posts/`, a page at the root: the
+ * distinction is a keyword, not a guess at a missing date.
+ */
+function pathFor(note: DenoteObject, cfg: BlogConfig): string {
+  const slug = slugFor(note.title, note.identifier);
+  return (note.keywords ?? []).includes("page") ? slug : `posts/${slug}`;
+}
+
+/** One page, rendered. */
+async function renderPage(
+  note: DenoteObject,
+  body: string,
+  hrefs: Map<string, string>,
+  cfg: BlogConfig,
+): Promise<{ html: string; entry: PageEntry }> {
+  const front = Object.fromEntries(
+    [...body.matchAll(/^#\+(\w+):[ \t]*(.*)$/gim)].map((m) => [
+      m[1].toLowerCase(),
+      m[2].trim(),
+    ]),
+  );
+  const post = !(note.keywords ?? []).includes("page");
+  const dir = pathFor(note, cfg);
+  const depth = dir.split("/").length;
+  const up = "../".repeat(depth);
+
+  // A link between two published notes becomes a real href; one to anything
+  // else keeps its words and loses its link, which is what the scan warned
+  // about.
+  let source = body.replace(
+    /\[\[denote:(\d{8}T\d{6})\](?:\[([^\]]*)\])?\]/g,
+    (whole, id, label) => {
+      const href = hrefs.get(id);
+      const text = label || id;
+      return href ? `[[${up}${href}][${text}]]` : text;
+    },
+  );
+  const counter = (() => {
+    let n = 0;
+    return () => ++n;
+  })();
+  // Each shortcode becomes a token the renderer carries through as plain
+  // text, and its HTML goes back in afterwards. Substituting before the
+  // render hands raw HTML to a parser that escapes it; a token keeps the two
+  // passes from fighting.
+  const pieces: string[] = [];
+  source = replaceShortcodes(source, (code: Shortcode) => {
+    pieces.push(tufteHtml(code, counter));
+    return `SBSHORTCODE${pieces.length - 1}END`;
+  });
+
+  let rendered = await markdown.pageToHtml(note.page, source);
+  pieces.forEach((piece, i) => {
+    const token = `SBSHORTCODE${i}END`;
+    // A block-level figure lands alone in a paragraph; unwrap it rather than
+    // leaving a <figure> inside a <p>.
+    rendered = rendered
+      .replaceAll(`<p>${token}</p>`, piece)
+      .replaceAll(token, piece);
+  });
+  const title = front.title ?? note.title;
+  const date = hugoDate(front.date);
+  const html = [
+    "<!doctype html>",
+    '<html lang="en"><head>',
+    '<meta charset="utf-8"/>',
+    '<meta name="viewport" content="width=device-width, initial-scale=1"/>',
+    `<title>${escapeHtml(title)} — ${escapeHtml(cfg.siteTitle)}</title>`,
+    front.description
+      ? `<meta name="description" content="${escapeHtml(front.description)}"/>`
+      : "",
+    `<link rel="stylesheet" href="${up}tufte.css"/>`,
+    "</head><body><article>",
+    `<h1>${escapeHtml(title)}</h1>`,
+    front.description
+      ? `<p class="subtitle">${escapeHtml(front.description)}</p>`
+      : "",
+    rendered,
+    "</article>",
+    `<footer class="site"><a href="${up}">${escapeHtml(cfg.siteTitle)}</a>` +
+      (date ? ` · ${escapeHtml(date)}` : "") +
+      "</footer>",
+    "</body></html>",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  return { html, entry: { title, href: `${dir}/`, date, post } };
+}
+
+/** The front page: pages first, then posts newest first. */
+function renderIndex(entries: PageEntry[], cfg: BlogConfig): string {
+  const posts = entries
+    .filter((e) => e.post)
+    .sort((a, b) => b.date.localeCompare(a.date));
+  const pages = entries.filter((e) => !e.post);
+  const list = (items: PageEntry[]) =>
+    items
+      .map(
+        (e) =>
+          `<li><a href="${e.href}">${escapeHtml(e.title)}</a>` +
+          (e.date ? `<span class="when">${escapeHtml(e.date)}</span>` : "") +
+          "</li>",
+      )
+      .join("\n");
+  return [
+    "<!doctype html>",
+    '<html lang="en"><head>',
+    '<meta charset="utf-8"/>',
+    '<meta name="viewport" content="width=device-width, initial-scale=1"/>',
+    `<title>${escapeHtml(cfg.siteTitle)}</title>`,
+    '<link rel="stylesheet" href="tufte.css"/>',
+    "</head><body><article>",
+    `<h1>${escapeHtml(cfg.siteTitle)}</h1>`,
+    pages.length ? `<nav class="index"><ul>${list(pages)}</ul></nav>` : "",
+    `<nav class="index"><ul>${list(posts)}</ul></nav>`,
+    "</article></body></html>",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function escapeHtml(text: string): string {
+  return text
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
 }
 
 /** Zotero credentials, or undefined when the library is not set up here. */
