@@ -1,4 +1,4 @@
-import { readdirSync } from "node:fs";
+import { mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, gotoSilverBulletPage, test } from "./fixtures.ts";
 import { currentPage } from "./navigator-ui.ts";
@@ -64,6 +64,46 @@ test.describe("Journal Today", () => {
       { timeout: 25_000 },
     );
     expect(entriesToday(sbServer.spaceDir)).toEqual(first);
+  });
+
+  // The only test here that runs with the service worker on, because the bug
+  // only exists when it is: `/.fs` is then answered from a background-synced
+  // replica, and the whole question is what happens when that replica is
+  // behind the server.
+  test.describe("with the service worker serving the file list", () => {
+    test.use({ disableServiceWorker: false });
+
+    test("finds an entry only the server knows about", async ({
+      sbPage,
+      sbServer,
+    }) => {
+      // The failure this actually had in the wild. `space.listPages()` reads
+      // through the service worker, which answers from a background-synced
+      // replica -- so an entry written on another device is missing from it,
+      // and the command creates a second one for the day. Simulated by writing
+      // the file on the server's disk, which no client cache has seen.
+      await gotoSilverBulletPage(sbPage, sbServer, "index");
+      await sbPage.waitForTimeout(1500);
+
+      const name = `journal/${stamp()}T060000--from-the-phone__journal.org`;
+      mkdirSync(join(sbServer.spaceDir, "journal"), { recursive: true });
+      writeFileSync(
+        join(sbServer.spaceDir, name),
+        `#+title:      From the phone\n#+identifier: ${stamp()}T060000\n` +
+          `#+filetags:   :journal:\n\nWritten elsewhere.\n`,
+      );
+
+      await sbPage.evaluate(() => {
+        void (globalThis as any).sbRuntime.evalLuaScript(
+          `editor.invokeCommand("Denote: Journal Today")`,
+        );
+      });
+      // It opens what the server has rather than writing a second entry.
+      await expect(currentPage(sbPage)).toHaveValue(name, { timeout: 25_000 });
+      expect(entriesToday(sbServer.spaceDir)).toEqual([
+        `${stamp()}T060000--from-the-phone__journal.org`,
+      ]);
+    });
   });
 
   test("finds an entry the index has never seen", async ({

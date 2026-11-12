@@ -1628,8 +1628,11 @@ async function journalConfig(): Promise<JournalConfig> {
 async function journalEntryNamesOn(
   stamp: string,
   config: JournalConfig,
+  authoritative = false,
 ): Promise<string[]> {
-  const pages = await space.listPages();
+  const pages = authoritative
+    ? await space.listPagesAuthoritative()
+    : await space.listPages();
   return pages
     .map((page) => page.name)
     .filter((name) => {
@@ -1686,7 +1689,28 @@ export async function denoteJournalOpenOrCreate(
     when = now;
   }
   const stamp = journalDateStamp(when);
-  const existing = await journalEntryNamesOn(stamp, config);
+  // The cached list first: finding an entry there is always right, and free.
+  // It is *not* finding one that is dangerous. `space.listPages()` is read
+  // through the service worker, which answers from a background-synced
+  // replica -- so an entry written on another device, or minutes ago on this
+  // one, can be missing from it. That is how a second entry for the day gets
+  // written, and it is why moving this lookup from the index to the file
+  // list did not fix it: both are caches.
+  let existing = await journalEntryNamesOn(stamp, config);
+  if (existing.length === 0) {
+    // About to create: the one moment the answer has to be the server's.
+    existing = await journalEntryNamesOn(stamp, config, true);
+    if (existing.length > 0) {
+      // Worth saying out loud. This bug is invisible until the duplicates
+      // pile up, and the test harness cannot reproduce it -- the service
+      // worker is off there -- so this line is the evidence that the check
+      // is doing its job.
+      console.log(
+        "[denote] today's entry was missing from the cached file list; " +
+          "the server had it. No second entry made.",
+      );
+    }
+  }
   if (existing.length > 0) {
     await editor.navigate(pathFromPageName(existing[0]) as any);
     return;

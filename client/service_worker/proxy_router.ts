@@ -306,6 +306,20 @@ export class ProxyRouter extends EventEmitter<ProxyRouterEvents> {
             this.basePathName.length,
           );
 
+          // A caller that cannot act on a stale answer says so, and the
+          // network is the only authority. Used by the journal: "is there an
+          // entry for today" read from a background-synced replica is how a
+          // second entry for the day gets created. Falls through to the local
+          // copy when the fetch fails, because offline a stale answer still
+          // beats none.
+          if (request.headers.has("x-authoritative")) {
+            try {
+              return await fetch(request);
+            } catch {
+              // Offline: carry on to the local paths below.
+            }
+          }
+
           // Paths that can never be served locally (auth, shell, etc.) — always proxy.
           // If the proxy fails, there's no local fallback, so let the outer catch
           // return 503.

@@ -21,6 +21,15 @@ import { syscall } from "../syscall.ts";
  * @param unfiltered
  * @returns a list of all pages in the space represented as PageMeta objects
  */
+/**
+ * The page list with no cache in between, for a caller that cannot act on a
+ * stale answer -- deciding whether to create a file, above all. Costs a
+ * round trip; falls back to the cached list when offline.
+ */
+export function listPagesAuthoritative(): Promise<PageMeta[]> {
+  return syscall("space.listPagesAuthoritative");
+}
+
 export function listPages(): Promise<PageMeta[]> {
   return syscall("space.listPages");
 }

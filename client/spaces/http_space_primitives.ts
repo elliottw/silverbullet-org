@@ -211,9 +211,18 @@ export class HttpSpacePrimitives implements SpacePrimitives {
     }
   }
 
-  async fetchFileList(): Promise<FileMeta[]> {
+  /**
+   * @param authoritative skip any cache between here and the server. The
+   *   service worker serves `/.fs` from a background-synced replica, which is
+   *   the right default and the wrong one for a caller deciding whether to
+   *   create a file.
+   */
+  async fetchFileList(authoritative = false): Promise<FileMeta[]> {
     const resp = await this.authenticatedFetch(this.url, {
       method: "GET",
+      ...(authoritative
+        ? { headers: { "x-authoritative": "1" }, cache: "no-store" as const }
+        : {}),
     });
 
     await this.validateSpacePathFromHeaders(resp);

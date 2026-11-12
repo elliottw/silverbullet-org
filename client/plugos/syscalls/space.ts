@@ -5,6 +5,7 @@ import {
   type Ref,
 } from "@silverbulletmd/silverbullet/lib/ref";
 import { fileName } from "@silverbulletmd/silverbullet/lib/resolve";
+import { fileMetaToPageMeta } from "../../space.ts";
 import {
   BasenameIndex,
   type PathLookup,
@@ -67,6 +68,31 @@ async function resolutionIndex(client: Client): Promise<BasenameIndex> {
 
 export function spaceReadSyscalls(client: Client): SysCallMapping {
   return {
+    /**
+     * The page list as the *server* has it, with no cache in between.
+     *
+     * `space.listPages` reads through the service worker, which answers from
+     * a background-synced replica -- correct for almost everything and wrong
+     * for a caller about to decide whether to create a file. Falls back to
+     * the ordinary list when there is no server to ask.
+     */
+    "space.listPagesAuthoritative": {
+      callback: async (): Promise<PageMeta[]> => {
+        const http = client.httpSpacePrimitives;
+        if (!http) return await client.space.fetchPageList();
+        try {
+          const files = await http.fetchFileList(true);
+          return files
+            .filter((meta) => client.space.isListedPage(meta))
+            .map(fileMetaToPageMeta);
+        } catch {
+          // Offline: a stale list still beats no list.
+          return await client.space.fetchPageList();
+        }
+      },
+      description:
+        "Lists all pages, bypassing any cache -- for a caller that cannot act on a stale answer.",
+    },
     "space.listPages": {
       callback: (): Promise<PageMeta[]> => client.space.fetchPageList(),
       description: "Lists all pages in the space.",
