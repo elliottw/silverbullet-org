@@ -8,7 +8,13 @@ import {
   type Transaction,
 } from "@codemirror/state";
 import type { DecorationSet } from "@codemirror/view";
-import { Decoration, EditorView, WidgetType } from "@codemirror/view";
+import {
+  Decoration,
+  EditorView,
+  ViewPlugin,
+  type ViewUpdate,
+  WidgetType,
+} from "@codemirror/view";
 import type { Client } from "../client.ts";
 
 type LinkOptions = {
@@ -119,6 +125,47 @@ export function decoratorStateField(
 
     provide: (f) => EditorView.decorations.from(f),
   });
+}
+
+/**
+ * A decoration set computed for the *visible* lines only.
+ *
+ * `decoratorStateField` recomputes from the whole document on every
+ * transaction, because a `StateField` has no notion of a viewport -- that is
+ * a view concept. Where a decoration's work is proportional to the document,
+ * that makes typing cost grow with the file: measured at 72ms per keystroke
+ * in a 575KB note, four dropped frames for one character.
+ *
+ * A `ViewPlugin` sees `view.visibleRanges`, so the same decorations cost what
+ * is on screen instead. A decoration needing context from outside the
+ * viewport (an outline depth depends on headings above it) still reads that
+ * from `view.state`; what it must not do is *emit* for the whole document.
+ */
+export function viewportDecorator(
+  mapper: (
+    view: EditorView,
+    ranges: readonly { from: number; to: number }[],
+  ) => DecorationSet,
+) {
+  return ViewPlugin.fromClass(
+    class {
+      decorations: DecorationSet;
+      constructor(view: EditorView) {
+        this.decorations = mapper(view, view.visibleRanges);
+      }
+      update(update: ViewUpdate) {
+        // Scrolling changes what is visible, so it counts as much as an edit.
+        if (
+          update.docChanged ||
+          update.viewportChanged ||
+          update.selectionSet
+        ) {
+          this.decorations = mapper(update.view, update.view.visibleRanges);
+        }
+      }
+    },
+    { decorations: (v) => v.decorations },
+  );
 }
 
 export class ButtonWidget extends WidgetType {

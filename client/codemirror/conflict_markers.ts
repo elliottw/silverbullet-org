@@ -253,7 +253,39 @@ function scanForEnd(
  * `syntaxTree.iterate` — it must keep working inside frontmatter, fenced
  * code (which it explicitly ignores), or any other block context.
  */
+/**
+ * Whether the document could hold a conflict marker at all.
+ *
+ * Every form of marker contains a run of seven `<`, `|` or `>`, so a document
+ * with none of those sequences anywhere cannot hold a conflict -- which is
+ * every document, almost always. Worth asking first: the full scan walks
+ * every line through the rope API and allocates a fence mask as long as the
+ * document, and it was 12ms of the 72ms that typing one character into a
+ * 575KB note cost. Reading the text in chunks answers the common case for a
+ * fraction of that.
+ */
+export function mayHoldConflict(doc: Text): boolean {
+  // A marker can straddle a chunk boundary, so the tail of each chunk is
+  // carried into the next.
+  let carry = "";
+  for (const chunk of doc.iter()) {
+    const window = carry + chunk;
+    if (
+      window.includes("<<<<<<<") ||
+      window.includes("|||||||") ||
+      window.includes(">>>>>>>")
+    ) {
+      return true;
+    }
+    carry = window.slice(-8);
+  }
+  return false;
+}
+
 export function findConflictHunks(doc: Text): ConflictHunk[] {
+  if (!mayHoldConflict(doc)) {
+    return [];
+  }
   const hunks: ConflictHunk[] = [];
   const totalLines = doc.lines;
   const fenceMask = computeFenceMask(doc);

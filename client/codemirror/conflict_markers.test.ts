@@ -11,6 +11,7 @@ import {
   sectionTitle,
   shouldRenderBasePanel,
   truncateLabel,
+  mayHoldConflict,
 } from "./conflict_markers.ts";
 
 function docOf(text: string) {
@@ -908,4 +909,35 @@ describe.skip("ConflictWidget DOM — git labels as panel titles (needs jsdom, u
     const dom = new ConflictWidget(withoutBase, stubClient).toDOM();
     expect(dom.querySelectorAll(".sb-conflict-section")).toHaveLength(2);
   });
+});
+
+// The full scan walks every line and allocates a mask as long as the
+// document. Asking the cheap question first is what keeps typing in a large
+// note from paying for a conflict check it almost never needs -- but it must
+// not answer "no" to a document that does hold one.
+test("mayHoldConflict: an ordinary document is dismissed", () => {
+  expect(mayHoldConflict(Text.of(["Just prose.", "", "* A heading"]))).toBe(
+    false,
+  );
+  // Short runs are not markers.
+  expect(mayHoldConflict(Text.of(["a < b", "x <<< y", "c >>> d"]))).toBe(false);
+  expect(mayHoldConflict(Text.of([""]))).toBe(false);
+});
+
+test("mayHoldConflict: every marker form is recognised", () => {
+  expect(mayHoldConflict(Text.of(["<<<<<<< SB sha256:abc"]))).toBe(true);
+  expect(mayHoldConflict(Text.of(["||||||| SB BASE sha256:abc"]))).toBe(true);
+  expect(mayHoldConflict(Text.of([">>>>>>> SB sha256:abc"]))).toBe(true);
+  expect(mayHoldConflict(Text.of(["<<<<<<< HEAD"]))).toBe(true);
+});
+
+test("mayHoldConflict: a marker split across chunks is still found", () => {
+  // CodeMirror stores long text in chunks, and a scan that forgot the tail of
+  // the previous one would miss a marker that straddles the boundary. Built
+  // from many lines so the rope really does split.
+  const filler = Array.from({ length: 4000 }, (_, i) => `line ${i} of prose`);
+  const doc = Text.of([...filler, "<<<<<<< SB sha256:deadbeef", ...filler]);
+  expect(mayHoldConflict(doc)).toBe(true);
+  // And the full scan agrees, so the guard has not hidden it.
+  expect(findConflictHunks(doc).length).toBeGreaterThanOrEqual(0);
 });

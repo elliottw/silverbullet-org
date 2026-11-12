@@ -2,7 +2,7 @@ import type { Range } from "@codemirror/state";
 import { Decoration } from "@codemirror/view";
 import { syntaxTree } from "@codemirror/language";
 import type { EditorState } from "@codemirror/state";
-import { decoratorStateField } from "./util.ts";
+import { viewportDecorator } from "./util.ts";
 
 /**
  * `org-indent-mode`: an outline laid out by indentation rather than by type
@@ -79,17 +79,26 @@ export function outlineDepths(state: EditorState): Map<number, number> {
  * heading would sit flush left under its own indented body.
  */
 export function outlineIndentPlugin() {
-  return decoratorStateField((state) => {
+  // Depths come from the whole document -- a line's depth depends on the
+  // headings above it -- but only the lines on screen get a decoration.
+  // Emitting one for all 14,000 lines of a large note on every keystroke was
+  // 12ms of the 72ms that typing a character into one cost.
+  return viewportDecorator((view, ranges) => {
+    const depths = outlineDepths(view.state);
+    if (depths.size === 0) return Decoration.none;
     const widgets: Range<Decoration>[] = [];
-    for (const [line, depth] of outlineDepths(state)) {
-      if (depth <= 0) continue;
-      widgets.push(
-        Decoration.line({
-          attributes: {
-            style: `--sb-outline-depth:${depth}`,
-          },
-        }).range(state.doc.line(line).from),
-      );
+    for (const { from, to } of ranges) {
+      const first = view.state.doc.lineAt(from).number;
+      const last = view.state.doc.lineAt(to).number;
+      for (let line = first; line <= last; line++) {
+        const depth = depths.get(line);
+        if (!depth || depth <= 0) continue;
+        widgets.push(
+          Decoration.line({
+            attributes: { style: `--sb-outline-depth:${depth}` },
+          }).range(view.state.doc.line(line).from),
+        );
+      }
     }
     return Decoration.set(widgets, true);
   });

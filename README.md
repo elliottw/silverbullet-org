@@ -579,6 +579,40 @@ config.set("org", { todoKeywords = "TODO NEXT | DONE" })
 Any page works — there is no designated styles page — and the block takes
 effect on the next load of that page's index.
 
+### What typing costs, and why
+
+Every decoration in this editor is a CodeMirror `StateField`, which has no
+notion of a viewport — so each one rebuilds from the whole document on every
+keystroke, and typing cost grows with the file. Measured (`e2e/typing-cost.test.ts`):
+
+| note | before | after |
+|---|---|---|
+| 1 KB (the median note) | 1.7 ms | 1.7 ms |
+| 10 KB (p95) | 6.5 ms | 6.2 ms |
+| 26 KB (p99) | 15.1 ms | 12.6 ms |
+| 575 KB (the book file) | 72.3 ms / 118 ms worst | **48.9 ms / 69.6 ms worst** |
+
+A frame is 16.7 ms, so the book file was dropping four to seven of them per
+character. Three fixes, each measured rather than guessed:
+
+* **`conflict_markers`** walked every line through the rope API and allocated
+  a mask as long as the document, to answer "no conflict here" — which is the
+  answer every time. It now scans the text in chunks for a marker run first:
+  11.9 ms → 3.7 ms.
+* **`denote_link`** resolved each link with `allPages.find(...)`, parsing a
+  Denote name per page until it matched — fifty links × four thousand pages,
+  per keystroke. An identifier index, cached on the page list's identity:
+  7.2 ms → 1.9 ms.
+* **`outline_indent`** emitted a line decoration for all 14,000 lines. It now
+  emits only for the viewport, via the new `viewportDecorator` helper, while
+  still reading depths from the whole document — a line's depth depends on
+  headings above it.
+
+What remains is flat: about 25 ms spread over 29 decorations at 1–4 ms each,
+with no hotspot left. Bringing those down means migrating them to
+`viewportDecorator` one at a time, which is mechanical but not free — each has
+to be checked for whether it needs context from outside the viewport.
+
 ### Why a drop got slow
 
 Dropping a PDF asks which Zotero collection to file it in, and the picker
