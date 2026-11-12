@@ -492,10 +492,28 @@ installed and flushes its caches on the next load. You lose offline use and gain
 "what I deployed is what I see", which is the better trade while the code is
 moving. Unset it when you want offline back.
 
-Without it, the fix is manual, per browser: DevTools → Application → Service
-Workers → Unregister, then reload. On a phone, where there are no DevTools,
-the reliable move is Settings → Safari → Advanced → Website Data and remove
-the site, or close every tab on it and reopen.
+Without it, the fix is a URL — on every platform, including the phone:
+
+```
+https://sb.elliott.io/?resetClient
+```
+
+It confirms, then wipes the local data store, tells the service worker to
+throw away its caches, **unregisters every worker for the origin**, and
+reloads. `?wipeClient` does the same but leaves the reload to you.
+
+The useful property is that this predates everything in this fork — it is
+upstream boot code — so a *stale* client still understands it. The escape
+hatch is not itself cached away, which is the failure that would otherwise
+need a desktop to fix.
+
+On a desktop the manual route still exists: DevTools → Application → Service
+Workers → Unregister. On iOS there are no DevTools, so `?resetClient` is the
+answer; failing that, Settings → Safari → Advanced → Website Data and remove
+the site. A Home Screen (standalone) install may keep its own storage
+separate from Safari's depending on the iOS version — if a reset in Safari
+does not take effect in the installed app, delete the Home Screen icon and
+add it again.
 
 **Session length** is `SB_REMEMBER_ME_HOURS`, defaulting to 168 (a week).
 `720` is thirty days. A device token, which is a separate thing, defaults to a
